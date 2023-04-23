@@ -5,24 +5,25 @@ from sim.sim import Simulation
 from sim.system import Station
 from sim.initialize import initialize_system
 
-
-stations = {i: Station(station_id=i,location=(i,i),capacity=50,capacity_opponent=50,num_self=i,num_opponent=50-i) for i in range(1,51)}
-dist_array = np.random.randint(2, 7, size=(50, 50))
-for i in range(50):
-    dist_array[i, i] = 0
-mu_array = np.random.uniform(0, 8, (720, 50))  # (time, station)
-lambda_s_array = np.random.uniform(0, 2, (720, 50))  # (time, station)
-lambda_c_array = np.random.uniform(0, 2, (720, 50))  # (time, station)
-
+from test_case import test_case_1, test_case_2
 
 if __name__ == '__main__':
+
+    test_case = test_case_1
+
     start = time.process_time()
+    test_result = []
     # initial settings should be the result of initialize_system()
-    test = Simulation(stations=stations, dist_array=dist_array,
-                      mu_array=mu_array, lambda_s_array=lambda_s_array, lambda_c_array=lambda_c_array)
-    test.run()
+    for _ in range(200):
+        test = Simulation(**test_case)
+        test.policy = None
+        test.run()
+        test_result.append(test.success)
+        test.print_simulation_log()
+        test.print_stage_log()
     end = time.process_time()
-    test.print_simulation_log()
-    test.print_stage_log()
+
+    print(f'Running test_case_1 with policy {test.policy}')
     print('Running time: %s Seconds' % (end - start))
+    print(f'Success avg: {np.mean(test_result)}, std: {np.std(test_result)}')
 
