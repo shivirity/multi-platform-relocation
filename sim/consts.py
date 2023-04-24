@@ -23,6 +23,9 @@ VEH_CAP = 50
 # operation time per bike
 OPERATION_TIME = 0.5
 
+# rollout simulation times
+ROLLOUT_SIM_TIMES = 5
+
 '''
 ### BIKE CONSTANTS ###
 

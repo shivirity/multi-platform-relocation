@@ -2,6 +2,7 @@ import json
 import numpy as np
 import time
 from sim.sim import Simulation
+from sim.consts import *
 from sim.system import Station
 from sim.initialize import initialize_system
 
@@ -14,7 +15,7 @@ if __name__ == '__main__':
     start = time.process_time()
     test_result = []
     # initial settings should be the result of initialize_system()
-    for _ in range(200):
+    for _ in range(1000):
         test = Simulation(**test_case)
         test.policy = None
         test.run()

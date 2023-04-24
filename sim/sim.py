@@ -1,4 +1,5 @@
 import copy
+import time
 import random
 import numpy as np
 
@@ -12,7 +13,7 @@ class Simulation:
     def __init__(self, stations: dict, dist_array: np.ndarray,
                  mu_array: np.ndarray, lambda_s_array: np.ndarray, lambda_c_array: np.ndarray):
         """
-        Simulation类
+        Simulation类.
 
         :param stations: dict of Station object
         :param dist_array: distance matrix
@@ -34,8 +35,7 @@ class Simulation:
         self.sim_end_time = SIM_END_T
 
         # simulation variable
-        self.t = 0  # system time
-        self.last_t = 0  # latest log time
+        self.t = self.sim_start_time  # system time
 
         # stage variable
         self.stage = 0
@@ -79,6 +79,7 @@ class Simulation:
 
         :return: 决策字典, {'inv': inv_dec, 'route': route_dec}
         """
+        # random
         if self.policy == 'random':
             cur_station = self.veh_info[0]
             if cur_station:
@@ -87,9 +88,49 @@ class Simulation:
             else:
                 inv_dec = -1  # only happens when the vehicle is at depot
             route_dec = random.sample([i for i in self.stations.keys() if i != cur_station], 1)[0]
-            return {'inv': inv_dec, 'route': route_dec}
+
+        # rollout
+        elif self.policy == 'rollout':
+            cur_station = self.veh_info[0]
+            if cur_station:
+                inv_levels = [i * self.stations[cur_station].cap for i in DEC_LEVELS]
+                route_choose = [i for i in self.stations.keys()]
+                route_success = {}
+                for inv in inv_levels:
+                    for route in route_choose:
+                        rep_sim = copy.deepcopy(self)
+                        rep_sim.apply_decision(inv_dec=inv, route_dec=route)
+                        rep_sim_h_success = []
+                        for _ in range(ROLLOUT_SIM_TIMES):
+                            rep_success = rep_sim.run_replication(base_policy=None)
+                            rep_sim_h_success.append(rep_success)
+                        route_success[(inv, route)] = np.mean(np.array(rep_sim_h_success, dtype=np.single))
+                route_dec = max(route_success, key=lambda x: route_success[x])
+                inv_dec, route_dec = route_dec[0], route_dec[1]
+
+            else:
+                route_success = []
+                route_choose = [i for i in self.stations.keys()]
+                for route in route_choose:
+                    rep_sim = copy.deepcopy(self)
+                    rep_sim.apply_decision(-1, route)
+                    rep_sim_h_success = []
+                    for _ in range(ROLLOUT_SIM_TIMES):
+                        rep_success = rep_sim.run_replication(base_policy=None)
+                        rep_sim_h_success.append(rep_success)
+                    route_success.append(np.mean(np.array(rep_sim_h_success, dtype=np.single)))
+                route_dec = route_success.index(max(route_success))
+                inv_dec = -1
+
+        # do nothing
         elif self.policy is None:
-            return {'inv': -1, 'route': 0}
+            cur_station = self.veh_info[0]
+            inv_dec, route_dec = -1, cur_station
+
+        else:
+            print('policy type error.')
+
+        return {'inv': inv_dec, 'route': route_dec}
 
     def decide_time(self, route_dec: int):
         """
@@ -117,19 +158,22 @@ class Simulation:
             assert inv_dec < 0
             self.veh_info[1] = route_dec
         else:
-            if inv_dec > self.stations[cur_station].num_self:
-                ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
-            elif inv_dec < self.stations[cur_station].num_self:
-                ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+            if inv_dec < 0:  # do nothing
+                self.veh_info[1] = route_dec
             else:
-                ins = 0
-            # post decision state
-            # station
-            self.stations[cur_station].num_self += ins
-            # vehicle
-            self.veh_info[1], self.veh_info[2] = route_dec, self.veh_info[2]-ins
-            # time
-            self.t += OPERATION_TIME * abs(ins)
+                if inv_dec > self.stations[cur_station].num_self:
+                    ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+                elif inv_dec < self.stations[cur_station].num_self:
+                    ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+                else:
+                    ins = 0
+                # post decision state
+                # station
+                self.stations[cur_station].num_self += ins
+                # vehicle
+                self.veh_info[1], self.veh_info[2] = route_dec, self.veh_info[2]-ins
+                # time
+                self.t += OPERATION_TIME * abs(ins)
 
     def generate_orders(self):
         """
@@ -214,11 +258,14 @@ class Simulation:
                 self.stage += 1
             self.stage_info.append(
                 self.stage_info_format(
-                    stage=self.stage, time=self.t, veh_loc=self.veh_info[0], veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
+                    stage=self.stage, time=self.t, veh_loc=self.veh_info[0],
+                    veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
             # decisions at current stage
+            dec_start = time.process_time()
             dec_dict = self.decide_action()
+            dec_end = time.process_time()
             inv_dec, route_dec = dec_dict['inv'], dec_dict['route']
-
+            print(f'({int(dec_end-dec_start)}s) Decision done at {self.t} with inv={inv_dec} and route={route_dec} and vehicle load={self.veh_info[2]} before operation.')
             # change next_loc and load in apply_decision
             self.apply_decision(inv_dec=inv_dec, route_dec=route_dec)
             # self.veh_info[1] = route_dec
@@ -226,8 +273,32 @@ class Simulation:
 
             self.stage_info.append(
                 self.stage_info_format(
-                    stage=self.stage, time=self.t, veh_loc=self.veh_info[0], veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
+                    stage=self.stage, time=self.t, veh_loc=self.veh_info[0],
+                    veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
             self.step(end_t=t_dec)
+
+    def run_replication(self, base_policy=None):
+        """
+        simulation in simulation, to decide best decision.
+
+        :param base_policy: base policy within the simulation
+        :return: sum cost
+        """
+        # no stage_log
+        sim = copy.deepcopy(self)
+        sim.policy = base_policy
+        # start inner simulation
+        while sim.t < sim.sim_end_time:
+            if sim.t:
+                sim.stage += 1
+            # decisions at current stage
+            dec_dict = sim.decide_action()
+            inv_dec, route_dec = dec_dict['inv'], dec_dict['route']
+            # change next_loc and load in apply_decision
+            sim.apply_decision(inv_dec=inv_dec, route_dec=route_dec)
+            t_dec = sim.decide_time(route_dec)  # 向前步进若干步，单位：min
+            sim.step(end_t=t_dec)
+        return sim.success
 
     def print_simulation_log(self):
         f = open("test_log/simulation_log.txt", "w")
