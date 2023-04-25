@@ -89,6 +89,7 @@ class Simulation:
                 inv_dec = -1  # only happens when the vehicle is at depot
             route_dec = random.sample([i for i in self.stations.keys() if i != cur_station], 1)[0]
 
+
         # rollout
         elif self.policy == 'rollout':
             cur_station = self.veh_info[0]
@@ -102,12 +103,11 @@ class Simulation:
                         rep_sim.apply_decision(inv_dec=inv, route_dec=route)
                         rep_sim_h_success = []
                         for _ in range(ROLLOUT_SIM_TIMES):
-                            rep_success = rep_sim.run_replication(base_policy=None)
+                            rep_success = rep_sim.run_replication(base_policy='STR')
                             rep_sim_h_success.append(rep_success)
                         route_success[(inv, route)] = np.mean(np.array(rep_sim_h_success, dtype=np.single))
                 route_dec = max(route_success, key=lambda x: route_success[x])
                 inv_dec, route_dec = route_dec[0], route_dec[1]
-
             else:
                 route_success = []
                 route_choose = [i for i in self.stations.keys()]
@@ -116,7 +116,7 @@ class Simulation:
                     rep_sim.apply_decision(-1, route)
                     rep_sim_h_success = []
                     for _ in range(ROLLOUT_SIM_TIMES):
-                        rep_success = rep_sim.run_replication(base_policy=None)
+                        rep_success = rep_sim.run_replication(base_policy='STR')
                         rep_sim_h_success.append(rep_success)
                     route_success.append(np.mean(np.array(rep_sim_h_success, dtype=np.single)))
                 route_dec = route_success.index(max(route_success))
@@ -127,8 +127,62 @@ class Simulation:
             cur_station = self.veh_info[0]
             inv_dec, route_dec = -1, cur_station
 
+        # short-term relocation
+        elif self.policy == 'STR':
+            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+            if cur_station:
+                cur_inv = self.stations[cur_station].num_self
+                # shortage
+                if cur_inv < round(GAMMA * self.stations[cur_station].cap):
+                    inv_dec = min(round(GAMMA * self.stations[cur_station].cap), cur_inv + cur_load)
+                    load_after_ins = cur_load - (inv_dec - cur_inv)
+                # surplus
+                elif cur_inv > round((1-GAMMA) * self.stations[cur_station].cap):
+                    inv_dec = max(round((1-GAMMA) * self.stations[cur_station].cap), cur_inv - (VEH_CAP - cur_load))
+                    load_after_ins = cur_load + cur_inv - inv_dec
+                # balanced
+                else:
+                    inv_dec = -1
+                    load_after_ins = cur_load
+                pot_stations = [i for i in self.stations.keys() if i != cur_station]
+                if 0 < load_after_ins < VEH_CAP:
+                    imb_stations = [i for i in pot_stations
+                                    if self.stations[i].num_self > (1-GAMMA)*self.stations[i].cap or self.stations[i].num_self < GAMMA*self.stations[i].cap]
+                elif load_after_ins == 0:
+                    imb_stations = [i for i in pot_stations if
+                                    self.stations[i].num_self > (1-GAMMA)*self.stations[i].cap]
+                elif load_after_ins == VEH_CAP:
+                    imb_stations = [i for i in pot_stations if
+                                    self.stations[i].num_self < GAMMA * self.stations[i].cap]
+                else:
+                    imb_stations = []
+                # 有可以前往的站点
+                if imb_stations:
+                    dis_list = [self.dist[cur_station, i] for i in imb_stations]
+                    route_dec_idx = random.sample([i for i in range(len(imb_stations)) if dis_list[i] == min(dis_list)], 1)[0]
+                    route_dec = imb_stations[route_dec_idx]
+                # 没有可以前往的站点
+                else:
+                    route_dec = cur_station
+            else:
+                inv_dec = -1
+                pot_stations = [i for i in self.stations.keys()]
+                surplus_stations = [i for i in pot_stations if self.stations[i].num_self > (1-GAMMA)*self.stations[i].cap]
+                # 有可以前往的站点
+                if surplus_stations:
+                    dis_list = [self.dist[0, i] for i in surplus_stations]
+                    route_dec_idx = random.sample([i for i in range(len(surplus_stations)) if dis_list[i] == min(dis_list)], 1)[0]
+                    route_dec = surplus_stations[route_dec_idx]
+                # 没有可以前往的站点
+                else:
+                    route_dec = 0
+
+        elif self.policy == 'rollout with limited horizon':
+            pass
+
         else:
             print('policy type error.')
+            assert False
 
         return {'inv': inv_dec, 'route': route_dec}
 
@@ -143,7 +197,7 @@ class Simulation:
         if route_dec == current_station:  # stay at current station
             return STAY_TIME
         else:
-            return self.dist[current_station-1, route_dec-1]
+            return self.dist[current_station, route_dec]
 
     def apply_decision(self, inv_dec: int, route_dec: int):
         """
@@ -173,19 +227,40 @@ class Simulation:
                 # vehicle
                 self.veh_info[1], self.veh_info[2] = route_dec, self.veh_info[2]-ins
                 # time
-                self.t += OPERATION_TIME * abs(ins)
+                operation_duration = OPERATION_TIME * abs(ins)
+                # 操作时流转数量
+                count_t = min(self.sim_end_time - self.t, operation_duration)
+                num_change_list, success_list, success_opponent_list, full_list = \
+                    self.generate_orders(gene_t=count_t)
+                # num_change
+                self.apply_num_change(num_change_list)
+                # success_record
+                sum_success = sum(success_list)
+                self.success += sum_success
+                self.success_list.append(sum_success)
+                # success_opponent_record
+                sum_success_oppo = sum(success_opponent_list)
+                self.success_opponent += sum_success_oppo
+                self.success_opponent_list.append(sum_success_oppo)
+                # full_loss_record
+                sum_full_loss = sum(full_list)
+                self.full_loss += sum_full_loss
+                self.full_loss_list.append(sum_full_loss)
 
-    def generate_orders(self):
+                self.t += operation_duration
+
+    def generate_orders(self, gene_t=MIN_STEP):
         """
-        生成订单
+        生成 time min 内订单
 
-        :return:
+        :param gene_t: 生成xx分钟内的订单
+        :return: list(num_change_list), list(success_list), list(success_opponent_list), list(full_list)
         """
         num_change_list, success_list, success_opponent_list, full_list = [], [], [], []
         for station in self.stations.keys():
-            arr_s, arr_c = np.random.poisson(self.lambda_s_array[int(self.t), station-1]), \
-                           np.random.poisson(self.lambda_c_array[int(self.t), station-1])
-            dep = np.random.poisson(self.mu_array[int(self.t), station-1])
+            arr_s, arr_c = np.random.poisson(self.lambda_s_array[int(self.t), station-1]*gene_t/MIN_STEP), \
+                           np.random.poisson(self.lambda_c_array[int(self.t), station-1]*gene_t/MIN_STEP)
+            dep = np.random.poisson(self.mu_array[int(self.t), station-1]*gene_t/MIN_STEP)
             if arr_s + self.stations[station].num_self > self.stations[station].cap:
                 num_s = self.stations[station].cap
                 full_list.append(arr_s + self.stations[station].num_self - self.stations[station].cap)

@@ -3,7 +3,7 @@ import numpy as np
 from sim.system import Station
 
 # test case 1
-dist_array = 5 * np.random.randint(4, 12, size=(50, 50))
+dist_array = 5 * np.random.randint(4, 12, size=(51, 51))
 for i in range(50):
     for j in range(i, 50):
         if i == j:
@@ -19,7 +19,7 @@ test_case_1 = {
 }
 
 # test case 2
-dist_array = 5 * np.random.randint(4, 12, size=(50, 50))
+dist_array = 5 * np.random.randint(4, 12, size=(51, 51))
 for i in range(50):
     for j in range(i, 50):
         if i == j:

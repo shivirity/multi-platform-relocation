@@ -15,9 +15,9 @@ if __name__ == '__main__':
     start = time.process_time()
     test_result = []
     # initial settings should be the result of initialize_system()
-    for _ in range(1000):
+    for _ in range(5):
         test = Simulation(**test_case)
-        test.policy = None
+        test.policy = 'rollout'
         test.run()
         test_result.append(test.success)
         test.print_simulation_log()
