@@ -24,7 +24,7 @@ VEH_CAP = 50
 OPERATION_TIME = 0.5
 
 # rollout simulation times
-ROLLOUT_SIM_TIMES = 5
+ROLLOUT_SIM_TIMES = 32
 
 # STR balance parameter
 GAMMA = 0.3

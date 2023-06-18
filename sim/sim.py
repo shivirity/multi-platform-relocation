@@ -11,18 +11,20 @@ np.random.seed(SEED)
 
 class Simulation:
     def __init__(self, stations: dict, dist_array: np.ndarray,
-                 mu_array: np.ndarray, lambda_s_array: np.ndarray, lambda_c_array: np.ndarray):
+                 mu_s_array: np.ndarray, mu_c_array: np.ndarray, lambda_s_array: np.ndarray, lambda_c_array: np.ndarray):
         """
         Simulation类.
 
         :param stations: dict of Station object
         :param dist_array: distance matrix
-        :param mu_array: demand(departing) rate for every time_idx and station
+        :param mu_array: demand(departing) rate for every time_idx and station todo
         :param lambda_s_array: supply(arriving) rate for every time_idx and station from platform-self
         :param lambda_c_array: supply(arriving) rate for every time_idx and station from platform-opponent
         """
         # system const
-        self.mu_array = mu_array
+        self.mu_s_array = mu_s_array
+        self.mu_c_array = mu_c_array
+        self.mu_array = mu_s_array + mu_c_array
         self.lambda_s_array = lambda_s_array
         self.lambda_c_array = lambda_c_array
         self.dist = dist_array
@@ -54,10 +56,12 @@ class Simulation:
         self.full_loss_list = []
 
         # policy
-        self.policy = None  # 'None', 'random'
+        self.policy = None  # 'None', 'random', 'STR', 'rollout'
+        self.single = False  # bool, True means decide with multi-information, False means decide with single-info
 
         # log
         self._log = []
+        self.print_action = False  # print the action of relocation vehicle
 
     @property
     def log(self):
@@ -66,6 +70,27 @@ class Simulation:
     @staticmethod
     def stage_info_format(stage, time, veh_loc, veh_next_loc, veh_load):
         return {'stage': stage, 'time': time, 'veh_loc': veh_loc, 'veh_next_loc': veh_next_loc, 'veh_load': veh_load}
+
+    @staticmethod
+    def get_station_inv(station_inv: int, inv_dec: int, load: int):
+        """
+        计算站点决策后库存（不包含depot）
+
+        :param station_inv: 站点原有库存
+        :param inv_dec: 站点库存决策
+        :param load: vehicle运载量
+        :return: 站内决策后库存
+        """
+        if inv_dec == -1:
+            return station_inv
+        else:
+            if inv_dec > station_inv:
+                ins = min(inv_dec - station_inv, load)
+            elif inv_dec < station_inv:
+                ins = max(inv_dec - station_inv, load - VEH_CAP)
+            else:
+                ins = 0
+            return load + ins
 
     def simulation_log_format(self, stations_dict):
         new_log = {'t': self.t}
@@ -84,25 +109,52 @@ class Simulation:
             cur_station = self.veh_info[0]
             if cur_station:
                 inv_levels = [i * self.stations[cur_station].cap for i in DEC_LEVELS]
+                inv_tmp, inv_state = [], []
+                for i in range(len(inv_levels)):
+                    if not i:
+                        inv_tmp.append(inv_levels[i])
+                        inv_state.append(
+                            self.get_station_inv(self.stations[cur_station].num_self, inv_levels[i], self.veh_info[2]))
+                    else:
+                        inv_state_tmp = self.get_station_inv(
+                            self.stations[cur_station].num_self, inv_levels[i], self.veh_info[2])
+                        if inv_state_tmp not in inv_state:
+                            inv_tmp.append(inv_levels[i])
+                            inv_state.append(inv_state_tmp)
+                inv_levels = inv_tmp
+
                 inv_dec = random.sample(inv_levels, 1)[0]
             else:
                 inv_dec = -1  # only happens when the vehicle is at depot
             route_dec = random.sample([i for i in self.stations.keys() if i != cur_station], 1)[0]
-
 
         # rollout
         elif self.policy == 'rollout':
             cur_station = self.veh_info[0]
             if cur_station:
                 inv_levels = [i * self.stations[cur_station].cap for i in DEC_LEVELS]
+                inv_tmp, inv_state = [], []
+                for i in range(len(inv_levels)):
+                    if not i:
+                        inv_tmp.append(inv_levels[i])
+                        inv_state.append(
+                            self.get_station_inv(self.stations[cur_station].num_self, inv_levels[i], self.veh_info[2]))
+                    else:
+                        inv_state_tmp = self.get_station_inv(
+                            self.stations[cur_station].num_self, inv_levels[i], self.veh_info[2])
+                        if inv_state_tmp not in inv_state:
+                            inv_tmp.append(inv_levels[i])
+                            inv_state.append(inv_state_tmp)
+                inv_levels = inv_tmp
+
                 route_choose = [i for i in self.stations.keys()]
                 route_success = {}
                 for inv in inv_levels:
                     for route in route_choose:
-                        rep_sim = copy.deepcopy(self)
-                        rep_sim.apply_decision(inv_dec=inv, route_dec=route)
                         rep_sim_h_success = []
                         for _ in range(ROLLOUT_SIM_TIMES):
+                            rep_sim = copy.deepcopy(self)
+                            rep_sim.apply_decision(inv_dec=inv, route_dec=route)
                             rep_success = rep_sim.run_replication(base_policy='STR')
                             rep_sim_h_success.append(rep_success)
                         route_success[(inv, route)] = np.mean(np.array(rep_sim_h_success, dtype=np.single))
@@ -128,6 +180,7 @@ class Simulation:
             inv_dec, route_dec = -1, cur_station
 
         # short-term relocation
+        # todo 多平台STR修正
         elif self.policy == 'STR':
             cur_station, cur_load = self.veh_info[0], self.veh_info[2]
             if cur_station:
@@ -185,6 +238,69 @@ class Simulation:
             assert False
 
         return {'inv': inv_dec, 'route': route_dec}
+
+    def decide_action_single_station(self):
+        """
+        决策当前站点目标库存水平和下一站点决策（单平台信息）
+
+        :return: 决策字典, {'inv': inv_dec, 'route': route_dec}
+        """
+        if self.policy == 'STR':
+            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+            if cur_station:
+                cur_inv = self.stations[cur_station].num_self
+                # shortage
+                if cur_inv < round(GAMMA * self.stations[cur_station].cap):
+                    inv_dec = min(round(GAMMA * self.stations[cur_station].cap), cur_inv + cur_load)
+                    load_after_ins = cur_load - (inv_dec - cur_inv)
+                # surplus
+                elif cur_inv > round((1 - GAMMA) * self.stations[cur_station].cap):
+                    inv_dec = max(round((1 - GAMMA) * self.stations[cur_station].cap), cur_inv - (VEH_CAP - cur_load))
+                    load_after_ins = cur_load + cur_inv - inv_dec
+                # balanced
+                else:
+                    inv_dec = -1
+                    load_after_ins = cur_load
+                pot_stations = [i for i in self.stations.keys() if i != cur_station]
+                if 0 < load_after_ins < VEH_CAP:
+                    imb_stations = [i for i in pot_stations
+                                    if self.stations[i].num_self > (1 - GAMMA) * self.stations[i].cap or self.stations[
+                                        i].num_self < GAMMA * self.stations[i].cap]
+                elif load_after_ins == 0:
+                    imb_stations = [i for i in pot_stations if
+                                    self.stations[i].num_self > (1 - GAMMA) * self.stations[i].cap]
+                elif load_after_ins == VEH_CAP:
+                    imb_stations = [i for i in pot_stations if
+                                    self.stations[i].num_self < GAMMA * self.stations[i].cap]
+                else:
+                    imb_stations = []
+                # 有可以前往的站点
+                if imb_stations:
+                    dis_list = [self.dist[cur_station, i] for i in imb_stations]
+                    route_dec_idx = \
+                    random.sample([i for i in range(len(imb_stations)) if dis_list[i] == min(dis_list)], 1)[0]
+                    route_dec = imb_stations[route_dec_idx]
+                # 没有可以前往的站点
+                else:
+                    route_dec = cur_station
+            else:  # at depot
+                inv_dec = -1
+                pot_stations = [i for i in self.stations.keys()]
+                surplus_stations = [i for i in pot_stations if
+                                    self.stations[i].num_self > (1 - GAMMA) * self.stations[i].cap]
+                # 有可以前往的站点
+                if surplus_stations:
+                    dis_list = [self.dist[0, i] for i in surplus_stations]
+                    route_dec_idx = \
+                    random.sample([i for i in range(len(surplus_stations)) if dis_list[i] == min(dis_list)], 1)[0]
+                    route_dec = surplus_stations[route_dec_idx]
+                # 没有可以前往的站点
+                else:
+                    route_dec = 0
+
+        return {'inv': inv_dec, 'route': route_dec}
+        # todo
+
 
     def decide_time(self, route_dec: int):
         """
@@ -337,7 +453,11 @@ class Simulation:
                     veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
             # decisions at current stage
             dec_start = time.process_time()
-            dec_dict = self.decide_action()
+            assert isinstance(self.single, bool)
+            if not self.single:  # multi-info
+                dec_dict = self.decide_action()
+            else:  # single-info
+                dec_dict = self.decide_action_single_station()
             dec_end = time.process_time()
             inv_dec, route_dec = dec_dict['inv'], dec_dict['route']
             print(f'({int(dec_end-dec_start)}s) Decision done at {self.t} with inv={inv_dec} and route={route_dec} and vehicle load={self.veh_info[2]} before operation.')
@@ -352,20 +472,23 @@ class Simulation:
                     veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
             self.step(end_t=t_dec)
 
-    def run_replication(self, base_policy=None):
+    def run_replication(self, base_info='multi', base_policy=None):
         """
         simulation in simulation, to decide best decision.
 
+        :param base_info: base information considered in the simulation
         :param base_policy: base policy within the simulation
         :return: sum cost
         """
         # no stage_log
         sim = copy.deepcopy(self)
         sim.policy = base_policy
+        if base_info == 'multi':
+            sim.single = False
+        elif base_info == 'single':
+            sim.single = True
         # start inner simulation
         while sim.t < sim.sim_end_time:
-            if sim.t:
-                sim.stage += 1
             # decisions at current stage
             dec_dict = sim.decide_action()
             inv_dec, route_dec = dec_dict['inv'], dec_dict['route']
