@@ -301,7 +301,6 @@ class Simulation:
         return {'inv': inv_dec, 'route': route_dec}
         # todo
 
-
     def decide_time(self, route_dec: int):
         """
         根据下一站决策，返回step的时长
