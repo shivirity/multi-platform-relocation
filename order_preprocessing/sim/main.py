@@ -291,6 +291,9 @@ if __name__ == '__main__':
         dep_s_array += np.array(problem.dep_s_list)
         dep_c_array += np.array(problem.dep_c_list)
 
+        if _ % 1000 == 0:
+            print(f'finish {_}/10000.')
+
     en = time.process_time()
     print('Running time: %s Seconds' % (en - st))
 
