@@ -7,6 +7,8 @@ from sim.system import Station
 
 def get_init_station() -> dict:
 
+    NUM_BIKES = 3900
+
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\station_list.pkl', 'rb') as file:
         station_list = pickle.load(file)
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\related_order.pkl', 'rb') as file:
@@ -15,8 +17,8 @@ def get_init_station() -> dict:
     s_list, c_list = get_init_distribution(station_list=station_list, orders=related_order)
     sum_s, sum_c = sum(s_list), sum(c_list)
     sum_total = sum_s + sum_c
-    s_list = [int(val * 3900 / sum_total) + 1 for val in s_list]
-    c_list = [int(val * 3900 / sum_total) + 1 for val in c_list]
+    s_list = [int(val * NUM_BIKES / sum_total) + 1 for val in s_list]
+    c_list = [int(val * NUM_BIKES / sum_total) + 1 for val in c_list]
 
     tmp = {
         i: Station(station_id=i, location=(i, i), capacity=60, capacity_opponent=120,

@@ -224,6 +224,7 @@ class Order_Simulation:
 
 
 def load_data() -> dict:
+    split_day = 3
     # distance_matrix
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\distance_matrix.pkl', 'rb') as file:
         distance_matrix = pickle.load(file)
@@ -236,19 +237,19 @@ def load_data() -> dict:
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\arr_s_array.pkl', 'rb') as file:
         arr_s_array = pickle.load(file)
         # dim as 5 days
-        arr_s_array = arr_s_array / 5
+        arr_s_array = arr_s_array / split_day
     # arr_c_array
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\arr_c_array.pkl', 'rb') as file:
         arr_c_array = pickle.load(file)
-        arr_c_array = arr_c_array / 5
+        arr_c_array = arr_c_array / split_day
     # dep_array
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\dep_array.pkl', 'rb') as file:
         dep_array = pickle.load(file)
-        dep_array = dep_array / 5
+        dep_array = dep_array / split_day
     # lam_array
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\lam_array.pkl', 'rb') as file:
         lam_array = pickle.load(file)
-        lam_array = lam_array / 5
+        lam_array = lam_array / split_day
     # des_dict
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\des_dict.pkl', 'rb') as file:
         des_dict = pickle.load(file)
@@ -270,7 +271,7 @@ def load_data() -> dict:
 if __name__ == '__main__':
 
     data = load_data()
-
+    '''
     stations = get_init_station()
     data['stations'] = stations
 
@@ -311,4 +312,5 @@ if __name__ == '__main__':
         pickle.dump(dep_s_array, f)
     with open("dep_c_array.pkl", "wb") as f:
         pickle.dump(dep_c_array, f)
+    '''
 
