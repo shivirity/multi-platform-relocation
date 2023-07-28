@@ -2,8 +2,8 @@
 SEED = 42
 
 # simulation time
-SIM_START_T = 5 * 60
-SIM_END_T = 22 * 60
+SIM_START_T = 5 * 60  # 5 * 60
+SIM_END_T = 22 * 60  # 22 * 60
 
 RE_START_T = 14 * 60
 RE_END_T = 20 * 60
@@ -26,7 +26,7 @@ VEH_CAP = 50
 # operation time per bike
 OPERATION_TIME = 0.5
 # operation const time
-CONST_OPERATION = 20
+CONST_OPERATION = 15
 
 # rollout simulation times
 ROLLOUT_SIM_TIMES = 32
@@ -38,7 +38,7 @@ GAMMA = 0.3
 UNIT_TRAVEL_COST = 1
 
 # (single-info) GLA lookahead horizon (in minute)
-GLA_HORIZON = 20
+GLA_HORIZON = 120
 GLA_delta = 0.5
 
 # single rollout horizon

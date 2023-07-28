@@ -71,6 +71,19 @@ class Order_Simulation:
         self.dep_s_list = []
         self.dep_c_list = []
 
+        # test
+        self.test_in_dep = 0
+        self.test_dep_num = 0
+        self.test_suc_in_dep = 0
+
+    @property
+    def self_list(self):
+        return [station.num_self for station in self.stations.values()]
+
+    @property
+    def oppo_list(self):
+        return [station.num_opponent for station in self.stations.values()]
+
     def get_incluster_orders(self) -> dict:
         """to generate number of arrival"""
         # lam = lam_array[self.t/self.min_step, stations] notice: this is inner orders
@@ -80,6 +93,7 @@ class Order_Simulation:
         for station in self.stations.keys():
             lam = self.lam_array[int(self.t / self.min_step / 3), station - 1]
             dep_num = np.random.poisson(lam)
+            self.test_dep_num += dep_num
             if dep_num > 0.01:
                 start_list = []
                 for _ in range(dep_num):
@@ -139,16 +153,17 @@ class Order_Simulation:
             arr_c_list.append(num_c - self.stations[station].num_opponent)
 
             # next out
-            out_dep = np.random.poisson(self.dep_array[int(self.t / self.min_step/3), station - 1])
+            out_dep = np.random.poisson(self.dep_array[int(self.t / self.min_step/ 3), station - 1])
             in_dep = in_orders.get(station, -1)
             if isinstance(in_dep, list):
                 in_dep = list(in_dep)
             else:
                 in_dep = []
+            self.test_in_dep += len(in_dep)
             des_list = [-1 for _ in range(out_dep)] + in_dep
             bike_list = [1 for _ in range(num_s)] + [0 for _ in range(num_c)]
             suc_num = min(len(des_list), len(bike_list))
-            if suc_num > 0:
+            if suc_num > 0.01:
                 dep, bike = random.sample(des_list, suc_num), random.sample(bike_list, suc_num)
                 dep_s, dep_c = sum(bike), suc_num - sum(bike)
 
@@ -160,6 +175,7 @@ class Order_Simulation:
                 counter = Counter(use_pair)
                 for pair in list(counter):
                     if pair[0] > 0:
+                        self.test_suc_in_dep += 1
                         # (arr_t, end_loc, num, belong(1: self, 0: oppo))
                         assert self.dist[station - 1, pair[0] - 1] > -0.01
                         self.order_queue.put(
@@ -169,9 +185,14 @@ class Order_Simulation:
                     (num_s - dep_s - self.stations[station].num_self,
                      num_c - dep_c - self.stations[station].num_opponent))
             else:
-                num_change_list.append((0, 0))
+                num_change_list.append(
+                    (num_s - self.stations[station].num_self, num_c - self.stations[station].num_opponent)
+                )
                 dep_s_list.append(0)
                 dep_c_list.append(0)
+
+            assert arr_s_list[-1] - dep_s_list[-1] == num_change_list[-1][0], f'{(arr_s_list[-1], dep_s_list[-1], num_change_list[-1][0])}'
+            assert arr_c_list[-1] - dep_c_list[-1] == num_change_list[-1][1], f'{(arr_c_list[-1], dep_c_list[-1], num_change_list[-1][1])}'
 
         return list(num_change_list), list(arr_s_list), list(arr_c_list), list(dep_s_list), list(dep_c_list)
 
@@ -228,7 +249,7 @@ def load_data() -> dict:
     # distance_matrix
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\distance_matrix.pkl', 'rb') as file:
         distance_matrix = pickle.load(file)
-    distance_matrix = np.floor(distance_matrix/5) * 5
+    distance_matrix = np.floor(distance_matrix/5) * 5  # in minute
     for i in range(distance_matrix.shape[0]):
         for j in range(distance_matrix.shape[1]):
             if distance_matrix[i, j] == 0:
@@ -257,10 +278,12 @@ def load_data() -> dict:
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\des_prob_dict.pkl', 'rb') as file:
         des_prob_dict = pickle.load(file)
 
+    reduction_rate = 1
+
     return {
         'dist_array': distance_matrix,
-        'arr_s_array': arr_s_array,
-        'arr_c_array': arr_c_array,
+        'arr_s_array': arr_s_array / reduction_rate,
+        'arr_c_array': arr_c_array / reduction_rate,
         'dep_array': dep_array,
         'lam_array': lam_array,
         'des_dict': des_dict,
@@ -271,7 +294,7 @@ def load_data() -> dict:
 if __name__ == '__main__':
 
     data = load_data()
-    '''
+
     stations = get_init_station()
     data['stations'] = stations
 
@@ -281,7 +304,7 @@ if __name__ == '__main__':
         np.zeros((288, station_num)), np.zeros((288, station_num)), \
         np.zeros((288, station_num)), np.zeros((288, station_num))
 
-    rep = 10000
+    rep = 1
     test = 0
     st = time.process_time()
     for _ in range(rep):
@@ -312,5 +335,3 @@ if __name__ == '__main__':
         pickle.dump(dep_s_array, f)
     with open("dep_c_array.pkl", "wb") as f:
         pickle.dump(dep_c_array, f)
-    '''
-

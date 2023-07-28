@@ -7,12 +7,14 @@ from sim.system import Station
 
 def get_init_station() -> dict:
 
-    NUM_BIKES = 3900
+    NUM_BIKES = 1500  # 3900
 
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\station_list.pkl', 'rb') as file:
         station_list = pickle.load(file)
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\related_order.pkl', 'rb') as file:
         related_order = pickle.load(file)
+
+    # by historical orders
 
     s_list, c_list = get_init_distribution(station_list=station_list, orders=related_order)
     sum_s, sum_c = sum(s_list), sum(c_list)
@@ -20,11 +22,29 @@ def get_init_station() -> dict:
     s_list = [int(val * NUM_BIKES / sum_total) + 1 for val in s_list]
     c_list = [int(val * NUM_BIKES / sum_total) + 1 for val in c_list]
 
+
+    # mean distribution
+    '''
+    s_list = [int(NUM_BIKES / len(station_list) / 3) for _ in range(len(station_list))]
+    c_list = [int(NUM_BIKES / len(station_list) * 2 / 3) for _ in range(len(station_list))]
+    '''
+
+    # for order simulation
+    '''
     tmp = {
-        i: Station(station_id=i, location=(i, i), capacity=60, capacity_opponent=120,
+        i: Station(station_id=i, location=(i, i), capacity=50, capacity_opponent=100,
                    num_self=max(s_list[i-1]+np.random.randint(low=-5, high=6), 0),
                    num_opponent=max(c_list[i-1]+np.random.randint(low=-5, high=6), 0))
-        for i in range(1, 133)
+        for i in range(1, 108)
+    }
+    '''
+
+    # for real test
+    tmp = {
+        i: Station(station_id=i, location=(i, i), capacity=50, capacity_opponent=100,
+                   num_self=max(s_list[i-1], 0),
+                   num_opponent=max(c_list[i-1], 0))
+        for i in range(1, 108)
     }
 
     return tmp
@@ -90,8 +110,10 @@ if __name__ == '__main__':
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\related_order.pkl', 'rb') as file:
         related_order = pickle.load(file)
 
+    num_of_bikes = 5000
+
     s_list, c_list = get_init_distribution(station_list=station_list, orders=related_order)
     sum_s, sum_c = sum(s_list), sum(c_list)
     sum_total = sum_s + sum_c
-    s_list = [int(val * 3900 / sum_total) + 1 for val in s_list]
-    c_list = [int(val * 3900 / sum_total) + 1 for val in c_list]
+    s_list = [int(val * num_of_bikes / sum_total) + 1 for val in s_list]
+    c_list = [int(val * num_of_bikes / sum_total) + 1 for val in c_list]

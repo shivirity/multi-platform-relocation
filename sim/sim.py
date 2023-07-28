@@ -51,7 +51,9 @@ class Simulation:
 
         # system performance
         self.success = 0  # number of successful orders
+        self.success_work = 0  # number of successful orders after relocation van starts to work
         self.success_list = []
+        self.success_work_list = []
         self.success_opponent = 0  # number of successful orders from opponent platform
         self.success_opponent_list = []
         self.full_loss = 0  # number of orders that lost because of station is full
@@ -70,6 +72,14 @@ class Simulation:
         # for single rollout
         self.single_full_list = None  # record return loss for every station in single rollout
         self.single_empty_list = None  # record rental loss for every station in single rollout
+
+    @property
+    def self_list(self):
+        return [station.num_self for station in self.stations.values()]
+
+    @property
+    def oppo_list(self):
+        return [station.num_opponent for station in self.stations.values()]
 
     @property
     def log(self):
@@ -398,8 +408,8 @@ class Simulation:
                 arr = sum(
                     self.lambda_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
                     cur_station - 1])
-                net_demand = round(dep - arr)
-                # print((dep, arr))
+                net_demand = int(dep - arr) + 1 if dep > arr else int(dep - arr)
+                print(net_demand, cur_inv, (dep, arr))
                 if net_demand >= cur_inv:
                     inv_dec = min(net_demand, self.stations[cur_station].cap)
                     load_after_ins = cur_load - min(inv_dec - cur_inv, cur_load)
@@ -495,6 +505,11 @@ class Simulation:
                 sum_success = sum(success_list)
                 self.success += sum_success
                 self.success_list.append(sum_success)
+                if self.t >= RE_START_T:
+                    self.success_work += sum_success
+                    self.success_work_list.append(sum_success)
+                else:
+                    self.success_work_list.append(0)
                 # success_opponent_record
                 sum_success_oppo = sum(success_opponent_list)
                 self.success_opponent += sum_success_oppo
@@ -642,6 +657,11 @@ class Simulation:
             sum_success = sum(success_list)
             self.success += sum_success
             self.success_list.append(sum_success)
+            if self.t >= RE_START_T:
+                self.success_work += sum_success
+                self.success_work_list.append(sum_success)
+            else:
+                self.success_work_list.append(0)
             # success_opponent_record
             sum_success_oppo = sum(success_opponent_list)
             self.success_opponent += sum_success_oppo

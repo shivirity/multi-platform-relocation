@@ -25,6 +25,7 @@ with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\station_list_25.pkl',
           'rb') as file:
     station_list_25 = pickle.load(file)
+"""
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\station_list_50.pkl',
           'rb') as file:
     station_list_50 = pickle.load(file)
@@ -34,6 +35,7 @@ with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\station_list_100.pkl',
           'rb') as file:
     station_list_100 = pickle.load(file)
+"""
 
 
 def get_part_stations(sel_stations: list, stations: list):
@@ -91,8 +93,8 @@ test_case_test = {
     'lambda_c_array': np.random.uniform(0, 2, (720, 50))  # (time, station)
 }
 
-# test case 1
-test_case_1 = {
+# test case all
+test_case_all = {
     'stations': get_init_station(),
     'dist_array': dist_array,
     'mu_s_array': dep_s_array,
@@ -110,3 +112,5 @@ test_case_25 = {
     'lambda_s_array': get_part_lambda_s_array(sel_stations=station_list_25, stations=station_list),
     'lambda_c_array': get_part_lambda_c_array(sel_stations=station_list_25, stations=station_list),
 }
+
+
