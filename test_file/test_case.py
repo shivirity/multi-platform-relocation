@@ -1,7 +1,7 @@
 import pickle
 import numpy as np
 
-from sim.system import Station
+from simulation.system import Station
 from order_preprocessing.sim.init import get_init_station
 
 # load data

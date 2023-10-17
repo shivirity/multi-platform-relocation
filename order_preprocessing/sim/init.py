@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pickle
 
-from sim.system import Station
+from simulation.system import Station
 
 
 def get_init_station() -> dict:

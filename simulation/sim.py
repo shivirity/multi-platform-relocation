@@ -3,7 +3,7 @@ import time
 import random
 import numpy as np
 
-from sim.consts import *
+from simulation.consts import *
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -12,7 +12,7 @@ np.random.seed(SEED)
 class Simulation:
     def __init__(self, stations: dict, dist_array: np.ndarray,
                  mu_s_array: np.ndarray, mu_c_array: np.ndarray, lambda_s_array: np.ndarray,
-                 lambda_c_array: np.ndarray):
+                 lambda_c_array: np.ndarray, **kwargs):
         """
         Simulation类.
 
@@ -29,7 +29,7 @@ class Simulation:
         self.mu_array = mu_s_array + mu_c_array
         self.lambda_s_array = lambda_s_array
         self.lambda_c_array = lambda_c_array
-        self.dist = dist_array
+        self.dist = dist_array * DIST_FIX
 
         # station dictionary
         self.stations = stations
@@ -61,9 +61,13 @@ class Simulation:
         self.empty_loss = 0  # number of orders that lost because of lack of bikes (single/both platforms)
         self.empty_loss_list = []
 
+        self.veh_distance = 0  # total distance of relocation vehicle
+
         # policy
-        self.policy = None  # 'None', 'random', 'STR', 'rollout'
-        self.single = None  # bool, False means decide with multi-information, True means decide with single-info
+        # single is True: 'STR', 'rollout', 'GLA'
+        # single is False: 'None', 'random', 'online_VFA'
+        self.policy = None
+        self.single = False  # bool, False means decide with multi-information, True means decide with single-info
 
         # log
         self._log = []
@@ -72,6 +76,12 @@ class Simulation:
         # for single rollout
         self.single_full_list = None  # record return loss for every station in single rollout
         self.single_empty_list = None  # record rental loss for every station in single rollout
+
+        # offline training property
+        self.cost_list = []
+        self.basis_func_property = []
+        self.func_dict = kwargs['func_dict'] if 'func_dict' in kwargs.keys() else None
+        # self.func_var_dict = self.init_func_var_dict()
 
     @property
     def self_list(self):
@@ -84,6 +94,15 @@ class Simulation:
     @property
     def log(self):
         return self._log
+
+    @property
+    def func_var_dict(self):
+        """给offline_VFA中的每个变量定义唯一的名字"""
+        var_dict = {
+            'const': 1,
+            'veh_load': self.veh_info[2],
+        }
+        return var_dict
 
     @staticmethod
     def stage_info_format(stage, time, veh_loc, veh_next_loc, veh_load):
@@ -116,7 +135,131 @@ class Simulation:
             new_log[key] = (value.num_self, value.num_opponent)
         return new_log
 
-    def decide_action(self):
+    def get_estimate_value(self, inv_dec: int, route_dec: int) -> float:
+        """返回离线训练时当前动作的总价值函数（估计）"""
+        assert self.single is False
+        cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+        if cur_station:  # at station
+            if inv_dec > self.stations[cur_station].num_self:
+                ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+            elif inv_dec < self.stations[cur_station].num_self:
+                ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+            else:
+                ins = 0
+            num_self_list = [val.num_self for val in self.stations.values()]
+            num_oppo_list = [val.num_opponent for val in self.stations.values()]
+            num_self_list[cur_station - 1] += ins
+            veh_load = cur_load - ins
+            on_route_t = 5 * (int((self.dist[
+                                       cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
+            cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+            # cost at current step
+            tmp_t, cost_exp = 0, 0
+            while tmp_t < cur_step_t:
+                # arrive
+                num_self_list = [
+                    min(num_self_list[i - 1] + self.lambda_s_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
+                        self.stations[i].cap) for i in range(1, len(self.stations) + 1)]
+                num_oppo_list = [
+                    min(num_oppo_list[i - 1] + self.lambda_c_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
+                        self.stations[i].cap_opponent) for i in range(1, len(self.stations) + 1)]
+                num_self_list_a, num_oppo_list_a = list(num_self_list), list(num_oppo_list)
+                # departure
+                num_self_list = [max(
+                    num_self_list[i - 1] - num_self_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
+                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
+                                 if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_self_list[i - 1]
+                                 for i in range(1, len(self.stations) + 1)
+                                 ]
+                num_oppo_list = [max(
+                    num_oppo_list[i - 1] - num_oppo_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
+                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
+                                 if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_oppo_list[i - 1]
+                                 for i in range(1, len(self.stations) + 1)
+                                 ]
+                cost_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
+                tmp_t += MIN_STEP
+            # cost after current step
+            cost_after = 0
+            # instruction fix
+            var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+            # calculate cost after
+            for key, value in var_dict.items():
+                cost_after += value * var_dict[key]
+            # route cost
+            route_cost = on_route_t * DISTANCE_COST_UNIT
+
+            return cost_exp + cost_after - route_cost
+
+        else:  # at depot
+            assert inv_dec < 0 and route_dec != 0
+            num_self_list = [val.num_self for val in self.stations.values()]
+            num_oppo_list = [val.num_opponent for val in self.stations.values()]
+            cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
+            # cost at current step
+            tmp_t, cost_exp = 0, 0
+            while tmp_t < cur_step_t:
+                # arrive
+                num_self_list = [
+                    min(num_self_list[i - 1] + self.lambda_s_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
+                        self.stations[i].cap) for i in range(1, len(self.stations) + 1)]
+                num_oppo_list = [
+                    min(num_oppo_list[i - 1] + self.lambda_c_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
+                        self.stations[i].cap_opponent) for i in range(1, len(self.stations) + 1)]
+                num_self_list_a, num_oppo_list_a = list(num_self_list), list(num_oppo_list)
+                # departure
+                num_self_list = [max(
+                    num_self_list[i - 1] - num_self_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
+                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
+                    if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_self_list[i - 1]
+                    for i in range(1, len(self.stations) + 1)
+                ]
+                num_oppo_list = [max(
+                    num_oppo_list[i - 1] - num_oppo_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
+                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
+                    if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_oppo_list[i - 1]
+                    for i in range(1, len(self.stations) + 1)
+                ]
+                cost_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
+                tmp_t += MIN_STEP
+            # cost after current step
+            veh_load, cost_after = cur_load, 0
+            # instruction fix
+            var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+            # calculate cost after
+            for key, value in var_dict.items():
+                cost_after += value * var_dict[key]
+            # route cost
+            route_cost = cur_step_t * DISTANCE_COST_UNIT
+
+            return cost_after - route_cost
+
+    def get_post_decision_var_dict(self, inv_dec: int, route_dec: int) -> dict:
+        """返回离线训练时当前动作后的变量字典"""
+        # todo 所有操作都要在计算post-value function的时候修正
+        var_dict = dict(self.func_var_dict)
+        cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+        if cur_station:  # at station
+            if inv_dec > self.stations[cur_station].num_self:
+                ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+            elif inv_dec < self.stations[cur_station].num_self:
+                ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+            else:
+                ins = 0
+
+            veh_load = cur_load - ins
+            if 'veh_load' in var_dict.keys():
+                var_dict['veh_load'] = veh_load
+
+        else:
+            assert inv_dec < 0 and route_dec != 0
+            veh_load = cur_load
+            if 'veh_load' in var_dict.keys():
+                var_dict['veh_load'] = veh_load
+
+        return var_dict
+
+    def decide_action_multi_info(self):
         """
         决策当前站点目标库存水平和下一站点决策
 
@@ -172,10 +315,10 @@ class Simulation:
                         rep_sim_h_success = []
                         for _ in range(ROLLOUT_SIM_TIMES):
                             rep_sim = copy.deepcopy(self)
-                            rep_sim.apply_decision(inv_dec=inv, route_dec=route)
+                            rep_sim.apply_decision_multi_info(inv_dec=inv, route_dec=route)
                             t_dec = rep_sim.decide_time(route)  # 向前步进若干步, in rollout, 单位：min
-                            rep_sim.step(end_t=t_dec)
-                            rep_success = rep_sim.run_replication(base_policy='multi-STR')
+                            rep_sim.step_multi_info(end_t=t_dec)
+                            rep_success = rep_sim.run_replication_multi_info(base_policy='multi-STR')
                             rep_sim_h_success.append(rep_success)
                         route_success[(inv, route)] = np.mean(np.array(rep_sim_h_success, dtype=np.single))
                 route_dec = max(route_success, key=lambda x: route_success[x])
@@ -185,12 +328,12 @@ class Simulation:
                 route_choose = [i for i in self.stations.keys()]
                 for route in route_choose:
                     rep_sim = copy.deepcopy(self)
-                    rep_sim.apply_decision(-1, route)
+                    rep_sim.apply_decision_multi_info(-1, route)
                     rep_sim_h_success = []
                     for _ in range(ROLLOUT_SIM_TIMES):
                         t_dec = rep_sim.decide_time(route)  # 向前步进若干步, in rollout, 单位：min
-                        rep_sim.step(end_t=t_dec)
-                        rep_success = rep_sim.run_replication(base_policy='multi-STR')
+                        rep_sim.step_multi_info(end_t=t_dec)
+                        rep_success = rep_sim.run_replication_multi_info(base_policy='multi-STR')
                         rep_sim_h_success.append(rep_success)
                     route_success.append(np.mean(np.array(rep_sim_h_success, dtype=np.single)))
                 route_dec = route_success.index(max(route_success))
@@ -202,8 +345,7 @@ class Simulation:
             inv_dec, route_dec = -1, cur_station
 
         # short-term relocation
-        # todo 多平台STR修正
-        elif self.policy == 'multi-STR':
+        elif self.policy == 'multi-STR':  # no new rules has been added
             cur_station, cur_load = self.veh_info[0], self.veh_info[2]
             if cur_station:
                 cur_inv = self.stations[cur_station].num_self
@@ -256,8 +398,74 @@ class Simulation:
                 else:
                     route_dec = 0
 
-        elif self.policy == 'rollout with limited horizon':
-            pass
+        # offline value function approximation training process
+        elif self.policy == 'offline_VFA_train':
+            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+            if cur_station:  # at stations
+                # choice set (without decision levels)
+                inv_options = [i for i in range(int(SAFETY_INV_LB * self.stations[cur_station].cap),
+                                                int(SAFETY_INV_UB * self.stations[cur_station].cap) + 1)]
+                station_options = [i for i in self.stations.keys()]
+                best_dec, best_val = None, -np.inf
+                for inv in inv_options:
+                    for station in station_options:
+                        # cost + estimated value
+                        est_val = self.get_estimate_value(inv_dec=inv, route_dec=station)
+                        if est_val > best_val:
+                            best_dec, best_val = (inv, station), est_val
+                # epsilon-greedy
+                if random.random() < EPSILON:
+                    inv_dec, route_dec = random.sample(inv_options, 1)[0], random.sample(station_options, 1)[0]
+                else:
+                    inv_dec, route_dec = best_dec[0], best_dec[1]
+
+                post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+                self.cost_list.append(best_val)
+                self.basis_func_property.append(dict(post_dec_var_dict))
+
+            else:  # at depot
+                inv_dec = -1
+                station_options = [i for i in self.stations.keys()]
+                best_dec, best_val = None, -np.inf
+                for station in station_options:
+                    est_val = self.get_estimate_value(inv_dec=inv_dec, route_dec=station)
+                    if est_val > best_val:
+                        best_dec, best_val = station, est_val
+                # epsilon-greedy
+                if random.random() < EPSILON:
+                    route_dec = random.sample(station_options, 1)[0]
+                else:
+                    route_dec = best_dec
+
+                post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+                self.cost_list.append(best_val)
+                self.basis_func_property.append(dict(post_dec_var_dict))
+
+        elif self.policy == 'online_VFA':
+            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+            if cur_station:  # at stations
+                # choice set (without decision levels)
+                inv_options = [i for i in range(int(SAFETY_INV_LB * self.stations[cur_station].cap),
+                                                int(SAFETY_INV_UB * self.stations[cur_station].cap) + 1)]
+                station_options = [i for i in self.stations.keys()]
+                best_dec, best_val = None, -np.inf
+                for inv in inv_options:
+                    for station in station_options:
+                        # cost + estimated value
+                        est_val = self.get_estimate_value(inv_dec=inv, route_dec=station)
+                        if est_val > best_val:
+                            best_dec, best_val = (inv, station), est_val
+                inv_dec, route_dec = best_dec[0], best_dec[1]
+
+            else:  # at depot
+                inv_dec = -1
+                station_options = [i for i in self.stations.keys()]
+                best_dec, best_val = None, -np.inf
+                for station in station_options:
+                    est_val = self.get_estimate_value(inv_dec=inv_dec, route_dec=station)
+                    if est_val > best_val:
+                        best_dec, best_val = station, est_val
+                route_dec = best_dec
 
         else:
             print('policy type error.')
@@ -265,7 +473,7 @@ class Simulation:
 
         return {'inv': inv_dec, 'route': route_dec}
 
-    def decide_action_single_station(self):
+    def decide_action_single_info(self):
         """
         决策当前站点目标库存水平和下一站点决策（单平台信息）
 
@@ -351,17 +559,16 @@ class Simulation:
                     for _ in range(ROLLOUT_SIM_TIMES):
                         rep_sim = copy.deepcopy(self)
                         rep_sim.sim_end_time = self.t + SINGLE_ROLLOUT_HORIZON
-                        rep_sim.apply_decision_single_station(inv_dec=inv, route_dec=cur_station)
+                        rep_sim.apply_decision_single_info(inv_dec=inv, route_dec=cur_station)
                         rep_sim.single_full_list, rep_sim.single_empty_list = [], []
-                        rep_fail, rep_rental, rep_return = rep_sim.run_replication_single_station(base_policy=None)
+                        rep_fail, rep_rental, rep_return = rep_sim.run_replication_single_info(base_policy=None)
                         rep_inv_fail.append(rep_fail)
                         station_rental = [a + b for a, b in zip(station_rental, rep_rental)]
                         station_return = [a + b for a, b in zip(station_return, rep_return)]
                     inv_fail.append(sum(rep_inv_fail))
-                station_rental = [val/(len(inv_levels) * ROLLOUT_SIM_TIMES) for val in station_rental]
-                station_return = [val/(len(inv_levels) * ROLLOUT_SIM_TIMES) for val in station_return]
+                station_rental = [val / (len(inv_levels) * ROLLOUT_SIM_TIMES) for val in station_rental]
+                station_return = [val / (len(inv_levels) * ROLLOUT_SIM_TIMES) for val in station_return]
 
-                # print(inv_fail)
                 inv_dec = inv_levels[inv_fail.index(min(inv_fail))]
                 pre_rental = self.stations[cur_station].num_self + self.veh_info[2] - \
                              self.get_station_inv(self.stations[cur_station].num_self, inv_dec, self.veh_info[2])
@@ -369,10 +576,10 @@ class Simulation:
                 station_rental, station_return = \
                     [min(val, pre_rental) for val in station_rental], [min(val, pre_return) for val in station_return]
                 station_max = [max(a, b) for a, b in zip(station_rental, station_return)]
-                station_max[cur_station-1] = -32
+                station_max[cur_station - 1] = -32
                 default_station = list(self.stations.keys())
                 random.shuffle(default_station)
-                default_max = [station_max[val-1] for val in default_station]
+                default_max = [station_max[val - 1] for val in default_station]
                 route_dec = default_station[default_max.index(max(default_max))]
             else:
                 station_rental, station_return = \
@@ -380,13 +587,13 @@ class Simulation:
                 for _ in range(ROLLOUT_SIM_TIMES):
                     rep_sim = copy.deepcopy(self)
                     rep_sim.sim_end_time = self.t + SINGLE_ROLLOUT_HORIZON
-                    rep_sim.apply_decision_single_station(inv_dec=-1, route_dec=cur_station)
+                    rep_sim.apply_decision_single_info(inv_dec=-1, route_dec=cur_station)
                     rep_sim.single_full_list, rep_sim.single_empty_list = [], []
-                    v, rep_rental, rep_return = rep_sim.run_replication_single_station(base_policy=None)
+                    v, rep_rental, rep_return = rep_sim.run_replication_single_info(base_policy=None)
                     station_rental = [a + b for a, b in zip(station_rental, rep_rental)]
                     station_return = [a + b for a, b in zip(station_return, rep_return)]
-                station_rental = [val/ROLLOUT_SIM_TIMES for val in station_rental]
-                station_return = [val/ROLLOUT_SIM_TIMES for val in station_return]
+                station_rental = [val / ROLLOUT_SIM_TIMES for val in station_rental]
+                station_return = [val / ROLLOUT_SIM_TIMES for val in station_return]
                 inv_dec = -1
                 pre_rental, pre_return = 0, VEH_CAP
                 station_rental, station_return = \
@@ -394,7 +601,7 @@ class Simulation:
                 station_max = [max(a, b) for a, b in zip(station_rental, station_return)]
                 default_station = list(self.stations.keys())
                 random.shuffle(default_station)
-                default_max = [station_max[val-1] for val in default_station]
+                default_max = [station_max[val - 1] for val in default_station]
                 route_dec = default_station[default_max.index(max(default_max))]
 
         elif self.policy == 'GLA':  # 2023 TS baseline
@@ -409,7 +616,7 @@ class Simulation:
                     self.lambda_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
                     cur_station - 1])
                 net_demand = int(dep - arr) + 1 if dep > arr else int(dep - arr)
-                print(net_demand, cur_inv, (dep, arr))
+                # print(net_demand, cur_inv, (dep, arr))
                 if net_demand >= cur_inv:
                     inv_dec = min(net_demand, self.stations[cur_station].cap)
                     load_after_ins = cur_load - min(inv_dec - cur_inv, cur_load)
@@ -452,7 +659,7 @@ class Simulation:
 
         return {'inv': inv_dec, 'route': route_dec}
 
-    def decide_time(self, route_dec: int):
+    def decide_time(self, route_dec: int) -> int:
         """
         根据下一站决策，返回step的时长
 
@@ -465,7 +672,7 @@ class Simulation:
         else:
             return self.dist[current_station, route_dec]
 
-    def apply_decision(self, inv_dec: int, route_dec: int):
+    def apply_decision_multi_info(self, inv_dec: int, route_dec: int):
         """
         改变当前站点库存和车辆载量，时间转移
 
@@ -473,6 +680,7 @@ class Simulation:
         :param route_dec: route decision (station id)
         :return:
         """
+        assert self.single is False
         cur_station, cur_load = self.veh_info[0], self.veh_info[2]
         if not cur_station:
             assert inv_dec < 0
@@ -525,7 +733,7 @@ class Simulation:
 
                 self.t += operation_duration
 
-    def apply_decision_single_station(self, inv_dec: int, route_dec: int):
+    def apply_decision_single_info(self, inv_dec: int, route_dec: int):
         """
         改变当前站点库存和车辆载量，用于single information时的流转量估计
 
@@ -533,6 +741,7 @@ class Simulation:
         :param route_dec: route decision (station id)
         :return:
         """
+        assert self.single is True
         cur_station, cur_load = self.veh_info[0], self.veh_info[2]
         if not cur_station:
             assert inv_dec < 0
@@ -609,9 +818,11 @@ class Simulation:
                 success_list.append(dep_s)
                 success_opponent_list.append(dep_c)
                 num_change_list.append(
-                    (num_s - dep_s - self.stations[station].num_self, num_c - dep_c - self.stations[station].num_opponent))
+                    (num_s - dep_s - self.stations[station].num_self,
+                     num_c - dep_c - self.stations[station].num_opponent))
             return \
-                list(num_change_list), list(success_list), list(success_opponent_list), list(full_list), list(empty_list)
+                list(num_change_list), list(success_list), list(success_opponent_list), list(full_list), list(
+                    empty_list)
 
         else:  # single=True
             assert self.single
@@ -640,9 +851,9 @@ class Simulation:
         for station in self.stations.keys():
             self.stations[station].change_num(num_change_list[station - 1])
 
-    def step(self, end_t: int):
+    def step_multi_info(self, end_t: int):
         """
-        步进函数
+        步进函数 for multi-information
 
         :return:
         """
@@ -678,10 +889,13 @@ class Simulation:
             self.t += MIN_STEP
         # before operation
         if self.veh_info[1] is not None:
+            move_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
+                if self.veh_info[0] != self.veh_info[1] else 0
+            self.veh_distance += move_dist
             self.veh_info[0] = self.veh_info[1]  # current_loc = next_loc
         self._log.append(self.simulation_log_format(self.stations))
 
-    def step_single_station(self, end_t: int):
+    def step_single_info(self, end_t: int):
         """
         步进函数 for single information
 
@@ -700,6 +914,9 @@ class Simulation:
             self.t += MIN_STEP
         # before operation
         if self.veh_info[1] is not None:
+            move_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
+                if self.veh_info[0] != self.veh_info[1] else 0
+            self.veh_distance += move_dist
             self.veh_info[0] = self.veh_info[1]  # current_loc = next_loc
 
     def run(self):
@@ -727,16 +944,16 @@ class Simulation:
                 dec_start = time.process_time()
                 assert isinstance(self.single, bool)
                 if not self.single:  # multi-info
-                    dec_dict = self.decide_action()
+                    dec_dict = self.decide_action_multi_info()  # todo: implement online_VFA
                 else:  # single-info
-                    dec_dict = self.decide_action_single_station()
+                    dec_dict = self.decide_action_single_info()
                 dec_end = time.process_time()
                 inv_dec, route_dec = dec_dict['inv'], dec_dict['route']
                 if self.print_action:
                     print(
                         f'({int(dec_end - dec_start)}s) Decision done at {self.t} with inv={inv_dec} and route={route_dec} and vehicle load={self.veh_info[2]} before operation.')
                 # change next_loc and load in apply_decision
-                self.apply_decision(inv_dec=inv_dec, route_dec=route_dec)
+                self.apply_decision_multi_info(inv_dec=inv_dec, route_dec=route_dec)
                 # self.veh_info[1] = route_dec
                 t_dec = self.decide_time(route_dec)  # 向前步进若干步，单位：min
             else:
@@ -746,9 +963,9 @@ class Simulation:
                 self.stage_info_format(
                     stage=self.stage, time=self.t, veh_loc=self.veh_info[0],
                     veh_next_loc=self.veh_info[1], veh_load=self.veh_info[2]))
-            self.step(end_t=t_dec)
+            self.step_multi_info(end_t=t_dec)
 
-    def run_replication(self, base_info='multi', base_policy=None):
+    def run_replication_multi_info(self, base_info='multi', base_policy=None):
         """
         simulation in simulation, to decide best decision.
 
@@ -766,15 +983,15 @@ class Simulation:
         # start inner simulation
         while sim.t < sim.sim_end_time:
             # decisions at current stage
-            dec_dict = sim.decide_action()
+            dec_dict = sim.decide_action_multi_info()
             inv_dec, route_dec = dec_dict['inv'], dec_dict['route']
             # change next_loc and load in apply_decision
-            sim.apply_decision(inv_dec=inv_dec, route_dec=route_dec)
+            sim.apply_decision_multi_info(inv_dec=inv_dec, route_dec=route_dec)
             t_dec = sim.decide_time(route_dec)  # 向前步进若干步，单位：min
-            sim.step(end_t=t_dec)
+            sim.step_multi_info(end_t=t_dec)
         return sim.success
 
-    def run_replication_single_station(self, base_policy=None):
+    def run_replication_single_info(self, base_policy=None):
         """
         simulation in simulation, to decide best decision.
 
@@ -787,7 +1004,7 @@ class Simulation:
         sim.single = True
         # start inner simulation
         while sim.t < sim.sim_end_time:
-            sim.step_single_station(end_t=MIN_STEP)
+            sim.step_single_info(end_t=MIN_STEP)
         if cur_loc < 0.1:
             rep_fail = 0
         else:
@@ -797,8 +1014,8 @@ class Simulation:
         for station in sim.stations.keys():
             t = self.dist[cur_loc, station]
             single_empty_array, single_full_array = np.array(sim.single_empty_list), np.array(sim.single_full_list)
-            rep_rental.append(sum(single_empty_array[int(t/MIN_STEP):, station - 1]))
-            rep_return.append(sum(single_full_array[int(t/MIN_STEP):, station - 1]))
+            rep_rental.append(sum(single_empty_array[int(t / MIN_STEP):, station - 1]))
+            rep_return.append(sum(single_full_array[int(t / MIN_STEP):, station - 1]))
         return rep_fail, rep_rental, rep_return
 
     def print_simulation_log(self):

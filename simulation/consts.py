@@ -43,3 +43,13 @@ GLA_delta = 0.5
 
 # single rollout horizon
 SINGLE_ROLLOUT_HORIZON = 360
+
+# distance matrix (for vehicle) fix rate (15km/h, min -> new speed, min)
+DIST_FIX = 4
+
+# offline VFA training params
+SAFETY_INV_LB = 0.1
+SAFETY_INV_UB = 0.9
+EPSILON = 0.05  # in epsilon-greedy policy
+DISTANCE_COST_UNIT = 0.25
+LAMBDA = 0.98  # in RLS algorithm

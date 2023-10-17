@@ -1,4 +1,4 @@
-from sim.consts import *
+from simulation.consts import *
 
 
 def initialize_system(config_file):
