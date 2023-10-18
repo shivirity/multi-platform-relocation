@@ -52,4 +52,5 @@ SAFETY_INV_LB = 0.1
 SAFETY_INV_UB = 0.9
 EPSILON = 0.05  # in epsilon-greedy policy
 DISTANCE_COST_UNIT = 0.25
+ORDER_INCOME_UNIT = 2
 LAMBDA = 0.98  # in RLS algorithm

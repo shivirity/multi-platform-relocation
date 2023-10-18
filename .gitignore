@@ -130,3 +130,11 @@ dmypy.json
 .pyre/
 
 data/
+
+results/
+
+offline_VFA/params/
+
+test_file/test_log/
+
+order_preprocessing/

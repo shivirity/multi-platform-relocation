@@ -102,6 +102,9 @@ class Simulation:
             'const': 1,
             'veh_load': self.veh_info[2],
         }
+        # binary location
+        for i in range(1, len(self.stations) + 1):
+            var_dict[f'veh_loc_{i}'] = 1 if self.veh_info[0] == i else 0
         return var_dict
 
     @staticmethod
@@ -184,7 +187,7 @@ class Simulation:
             # instruction fix
             var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
             # calculate cost after
-            for key, value in var_dict.items():
+            for key, value in self.func_dict.items():
                 cost_after += value * var_dict[key]
             # route cost
             route_cost = on_route_t * DISTANCE_COST_UNIT
@@ -227,11 +230,12 @@ class Simulation:
             # instruction fix
             var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
             # calculate cost after
-            for key, value in var_dict.items():
+            for key, value in self.func_dict.items():
                 cost_after += value * var_dict[key]
             # route cost
             route_cost = cur_step_t * DISTANCE_COST_UNIT
 
+            assert isinstance(cost_after - route_cost, float), f'cost_after={cost_after}, route_cost={route_cost}'
             return cost_after - route_cost
 
     def get_post_decision_var_dict(self, inv_dec: int, route_dec: int) -> dict:
@@ -415,7 +419,8 @@ class Simulation:
                             best_dec, best_val = (inv, station), est_val
                 # epsilon-greedy
                 if random.random() < EPSILON:
-                    inv_dec, route_dec = random.sample(inv_options, 1)[0], random.sample(station_options, 1)[0]
+                    inv_dec, route_dec = \
+                        int(random.sample(inv_options, 1)[0]), int(random.sample(station_options, 1)[0])
                 else:
                     inv_dec, route_dec = best_dec[0], best_dec[1]
 
@@ -433,7 +438,7 @@ class Simulation:
                         best_dec, best_val = station, est_val
                 # epsilon-greedy
                 if random.random() < EPSILON:
-                    route_dec = random.sample(station_options, 1)[0]
+                    route_dec = int(random.sample(station_options, 1)[0])
                 else:
                     route_dec = best_dec
 
@@ -470,6 +475,8 @@ class Simulation:
         else:
             print('policy type error.')
             assert False
+
+        assert route_dec is not None
 
         return {'inv': inv_dec, 'route': route_dec}
 
@@ -657,6 +664,8 @@ class Simulation:
             print('policy type error.')
             assert False
 
+        assert route_dec is not None
+
         return {'inv': inv_dec, 'route': route_dec}
 
     def decide_time(self, route_dec: int) -> int:
@@ -680,7 +689,6 @@ class Simulation:
         :param route_dec: route decision (station id)
         :return:
         """
-        assert self.single is False
         cur_station, cur_load = self.veh_info[0], self.veh_info[2]
         if not cur_station:
             assert inv_dec < 0
@@ -944,7 +952,7 @@ class Simulation:
                 dec_start = time.process_time()
                 assert isinstance(self.single, bool)
                 if not self.single:  # multi-info
-                    dec_dict = self.decide_action_multi_info()  # todo: implement online_VFA
+                    dec_dict = self.decide_action_multi_info()
                 else:  # single-info
                     dec_dict = self.decide_action_single_info()
                 dec_end = time.process_time()
@@ -955,7 +963,7 @@ class Simulation:
                 # change next_loc and load in apply_decision
                 self.apply_decision_multi_info(inv_dec=inv_dec, route_dec=route_dec)
                 # self.veh_info[1] = route_dec
-                t_dec = self.decide_time(route_dec)  # 向前步进若干步，单位：min
+                t_dec = self.decide_time(route_dec=route_dec)  # 向前步进若干步，单位：min
             else:
                 t_dec = STAY_TIME
 

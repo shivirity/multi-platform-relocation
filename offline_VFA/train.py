@@ -85,8 +85,10 @@ class VFATrainer:
             for pair in zipped:
                 theta = self.convert_theta_to_vector()
                 new_x, new_y = self.convert_x_to_vector(pair[0]).T, pair[1]
-                self.gamma = LAMBDA + new_x.T @ self.B @ new_x
-                theta = theta - self.B @ new_x * (new_x.T @ theta - new_y) / self.gamma
+                self.gamma = LAMBDA + float(new_x.T @ self.B @ new_x)
+                assert self.gamma != 0, f'{new_x, float(new_x.T @ self.B @ new_x)}'
+                # assert abs(new_x.T @ theta - new_y) < 1e10, f'{new_x, new_y, theta}'
+                theta = theta - self.B @ new_x * (float(new_x.T @ theta) - new_y) / self.gamma
                 self.B = 1 / LAMBDA * (self.B - self.B @ new_x @ new_x.T @ self.B / self.gamma)
                 self.convert_vector_to_theta(theta_array=theta)
 
@@ -125,7 +127,7 @@ class VFATrainer:
 
 if __name__ == '__main__':
     num_of_funcs = 2
-    train_rep_list = [2500, 5000, 7500, 10000]  # 递增训练次数
+    train_rep_list = [100, 200, 500]  # 递增训练次数
     func_names = ['const', 'veh_load']
     trainer = VFATrainer(
         trainer_name='phi_2',
