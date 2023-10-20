@@ -1,9 +1,10 @@
+import time
 import numpy as np
 import pandas as pd
 
 from simulation.sim import Simulation
 from simulation.consts import LAMBDA
-from test_file.test_case import test_case_all, test_case_25
+from test_file.test_case import test_case_25
 
 
 class VFATrainer:
@@ -19,8 +20,8 @@ class VFATrainer:
         self.method = method
         self.func_dict = {}
         self.rep = 0
-        for i in range(num_of_funcs):
-            self.func_dict[func_names[i]] = 0
+        for _ in range(num_of_funcs):
+            self.func_dict[func_names[_]] = 0
 
         # RLS params
         self.B = None
@@ -40,8 +41,8 @@ class VFATrainer:
             sim.single = False
             sim.policy = 'offline_VFA_train'
             sim.run()
-            for i in range(0, len(sim.basis_func_property)-1):
-                B = np.append(B, self.convert_x_to_vector(sim.basis_func_property[i]), axis=0)
+            for _ in range(0, len(sim.basis_func_property)-1):
+                B = np.append(B, self.convert_x_to_vector(sim.basis_func_property[_]), axis=0)
             self.init_dim = B.shape[0]
         B_0 = np.dot(B.T, B)
         return B_0
@@ -64,7 +65,10 @@ class VFATrainer:
             sim.run()
             self.update_func_dict(cost_list=sim.cost_list, property_list=sim.basis_func_property)
             if self.rep % 10 == 0 and self.rep > 0:
+                cost_sum = sum(sim.cost_list)
+                real_sum = sim.success_work
                 print('Training process: {}/{}'.format(self.rep, self.train_rep))
+                print(f'cost_sum: {cost_sum}, real_sum: {real_sum}')
 
             self.rep += 1
             if self.rep in print_list:
@@ -85,6 +89,7 @@ class VFATrainer:
             for pair in zipped:
                 theta = self.convert_theta_to_vector()
                 new_x, new_y = self.convert_x_to_vector(pair[0]).T, pair[1]
+                # todo 导出数据单独查看回归准确性
                 self.gamma = LAMBDA + float(new_x.T @ self.B @ new_x)
                 assert self.gamma != 0, f'{new_x, float(new_x.T @ self.B @ new_x)}'
                 # assert abs(new_x.T @ theta - new_y) < 1e10, f'{new_x, new_y, theta}'
@@ -126,14 +131,26 @@ class VFATrainer:
 
 
 if __name__ == '__main__':
-    num_of_funcs = 2
+
+    case_dict = {
+        'phi_1': {'trainer_name': 'phi_1', 'num_of_funcs': 1, 'func_names': ['const']},
+        'phi_2': {'trainer_name': 'phi_2', 'num_of_funcs': 2, 'func_names': ['const', 'veh_load']},
+        'phi_3': {'trainer_name': 'phi_3', 'num_of_funcs': 2 + 25, 'func_names': ['const', 'veh_load']}
+    }
+    # fix case phi_3
+    for i in range(1, 26):
+        case_dict['phi_3']['func_names'].append(f'veh_des_{i}')
+
+    # train process
+    train_case = 'phi_3'
     train_rep_list = [100, 200, 500]  # 递增训练次数
-    func_names = ['const', 'veh_load']
+
+    start = time.process_time()
     trainer = VFATrainer(
-        trainer_name='phi_2',
-        num_of_funcs=num_of_funcs,
-        func_names=func_names,
+        **case_dict[train_case],
         train_rep=train_rep_list[-1],
         method='RLS'
     )
     trainer.train(print_list=train_rep_list)
+    end = time.process_time()
+    print('Running time: %s Seconds' % (end - start))

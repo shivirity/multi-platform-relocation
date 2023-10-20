@@ -9,9 +9,9 @@ from test_case import test_case_25
 if __name__ == '__main__':
 
     test_case = test_case_25
-    selected_set = 'phi_1'
+    selected_set = 'phi_3'
     selected_case = 25
-    selected_rep = 10
+    selected_rep = 500
     func_params = pd.read_csv(f'../offline_VFA/params/params_{selected_set}_{selected_case}_{selected_rep}.csv')
     func_dict = dict(zip(func_params['key'], func_params['value']))
 

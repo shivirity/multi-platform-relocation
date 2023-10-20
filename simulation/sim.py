@@ -104,7 +104,7 @@ class Simulation:
         }
         # binary location
         for i in range(1, len(self.stations) + 1):
-            var_dict[f'veh_loc_{i}'] = 1 if self.veh_info[0] == i else 0
+            var_dict[f'veh_des_{i}'] = 1 if self.veh_info[1] == i else 0
         return var_dict
 
     @staticmethod
@@ -152,36 +152,13 @@ class Simulation:
             num_self_list = [val.num_self for val in self.stations.values()]
             num_oppo_list = [val.num_opponent for val in self.stations.values()]
             num_self_list[cur_station - 1] += ins
-            veh_load = cur_load - ins
             on_route_t = 5 * (int((self.dist[
                                        cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
             cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
             # cost at current step
-            tmp_t, cost_exp = 0, 0
-            while tmp_t < cur_step_t:
-                # arrive
-                num_self_list = [
-                    min(num_self_list[i - 1] + self.lambda_s_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
-                        self.stations[i].cap) for i in range(1, len(self.stations) + 1)]
-                num_oppo_list = [
-                    min(num_oppo_list[i - 1] + self.lambda_c_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
-                        self.stations[i].cap_opponent) for i in range(1, len(self.stations) + 1)]
-                num_self_list_a, num_oppo_list_a = list(num_self_list), list(num_oppo_list)
-                # departure
-                num_self_list = [max(
-                    num_self_list[i - 1] - num_self_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
-                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
-                                 if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_self_list[i - 1]
-                                 for i in range(1, len(self.stations) + 1)
-                                 ]
-                num_oppo_list = [max(
-                    num_oppo_list[i - 1] - num_oppo_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
-                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
-                                 if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_oppo_list[i - 1]
-                                 for i in range(1, len(self.stations) + 1)
-                                 ]
-                cost_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
-                tmp_t += MIN_STEP
+            cost_exp = self.get_estimated_cost(
+                step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+            )
             # cost after current step
             cost_after = 0
             # instruction fix
@@ -200,31 +177,9 @@ class Simulation:
             num_oppo_list = [val.num_opponent for val in self.stations.values()]
             cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
             # cost at current step
-            tmp_t, cost_exp = 0, 0
-            while tmp_t < cur_step_t:
-                # arrive
-                num_self_list = [
-                    min(num_self_list[i - 1] + self.lambda_s_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
-                        self.stations[i].cap) for i in range(1, len(self.stations) + 1)]
-                num_oppo_list = [
-                    min(num_oppo_list[i - 1] + self.lambda_c_array[int((self.t + tmp_t) / MIN_STEP), i - 1],
-                        self.stations[i].cap_opponent) for i in range(1, len(self.stations) + 1)]
-                num_self_list_a, num_oppo_list_a = list(num_self_list), list(num_oppo_list)
-                # departure
-                num_self_list = [max(
-                    num_self_list[i - 1] - num_self_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
-                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
-                    if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_self_list[i - 1]
-                    for i in range(1, len(self.stations) + 1)
-                ]
-                num_oppo_list = [max(
-                    num_oppo_list[i - 1] - num_oppo_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
-                    self.mu_array[int((self.t + tmp_t) / MIN_STEP), i - 1], 0)
-                    if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_oppo_list[i - 1]
-                    for i in range(1, len(self.stations) + 1)
-                ]
-                cost_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
-                tmp_t += MIN_STEP
+            cost_exp = self.get_estimated_cost(
+                step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+            )
             # cost after current step
             veh_load, cost_after = cur_load, 0
             # instruction fix
@@ -236,7 +191,45 @@ class Simulation:
             route_cost = cur_step_t * DISTANCE_COST_UNIT
 
             assert isinstance(cost_after - route_cost, float), f'cost_after={cost_after}, route_cost={route_cost}'
-            return cost_after - route_cost
+            return cost_exp + cost_after - route_cost
+
+    def get_estimated_cost(self, step_t: int, num_self: list, num_oppo: list, start_t: int) -> float:
+        """
+        返回当前动作的价值函数
+
+        :param step_t: 向前估计的时间步长
+        :param num_self: 初始状态的自身平台库存列表
+        :param num_oppo: 初始状态的竞对平台库存列表
+        :param start_t: 初始状态的时间
+        :return:
+        """
+        tmp_t, cost_exp = 0, 0
+        num_self_list, num_oppo_list = list(num_self), list(num_oppo)
+        while tmp_t < step_t:
+            # arrive
+            num_self_list = [
+                min(num_self_list[i - 1] + self.lambda_s_array[int((start_t + tmp_t) / MIN_STEP), i - 1],
+                    self.stations[i].cap) for i in range(1, len(self.stations) + 1)]
+            num_oppo_list = [
+                min(num_oppo_list[i - 1] + self.lambda_c_array[int((start_t + tmp_t) / MIN_STEP), i - 1],
+                    self.stations[i].cap_opponent) for i in range(1, len(self.stations) + 1)]
+            num_self_list_a, num_oppo_list_a = list(num_self_list), list(num_oppo_list)
+            # departure
+            num_self_list = [max(
+                num_self_list[i - 1] - num_self_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
+                self.mu_array[int((start_t + tmp_t) / MIN_STEP), i - 1], 0)
+                             if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_self_list[i - 1]
+                             for i in range(1, len(self.stations) + 1)
+                             ]
+            num_oppo_list = [max(
+                num_oppo_list[i - 1] - num_oppo_list[i - 1] / (num_self_list[i - 1] + num_oppo_list[i - 1]) *
+                self.mu_array[int((start_t + tmp_t) / MIN_STEP), i - 1], 0)
+                             if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_oppo_list[i - 1]
+                             for i in range(1, len(self.stations) + 1)
+                             ]
+            cost_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
+            tmp_t += MIN_STEP
+        return cost_exp
 
     def get_post_decision_var_dict(self, inv_dec: int, route_dec: int) -> dict:
         """返回离线训练时当前动作后的变量字典"""
@@ -425,7 +418,24 @@ class Simulation:
                     inv_dec, route_dec = best_dec[0], best_dec[1]
 
                 post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
-                self.cost_list.append(best_val)
+                # estimate current cost
+                if inv_dec > self.stations[cur_station].num_self:
+                    ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+                elif inv_dec < self.stations[cur_station].num_self:
+                    ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+                else:
+                    ins = 0
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                num_self_list[cur_station - 1] += ins
+                on_route_t = 5 * (int((self.dist[
+                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                # cost at current step
+                cost_exp = self.get_estimated_cost(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+                self.cost_list.append(cost_exp)
                 self.basis_func_property.append(dict(post_dec_var_dict))
 
             else:  # at depot
@@ -443,7 +453,16 @@ class Simulation:
                     route_dec = best_dec
 
                 post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
-                self.cost_list.append(best_val)
+
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
+                # cost at current step
+                cost_exp = self.get_estimated_cost(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+
+                self.cost_list.append(cost_exp)
                 self.basis_func_property.append(dict(post_dec_var_dict))
 
         elif self.policy == 'online_VFA':
