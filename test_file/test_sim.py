@@ -1,4 +1,5 @@
 import time
+import pickle
 import numpy as np
 import pandas as pd
 
@@ -9,11 +10,19 @@ from test_case import test_case_25
 if __name__ == '__main__':
 
     test_case = test_case_25
-    selected_set = 'phi_3'
+    case_test = False
+    selected_set = 'phi_6'
     selected_case = 25
-    selected_rep = 500
-    func_params = pd.read_csv(f'../offline_VFA/params/params_{selected_set}_{selected_case}_{selected_rep}.csv')
-    func_dict = dict(zip(func_params['key'], func_params['value']))
+    selected_rep = 4000
+
+    if case_test is True:
+        # case test
+        func_params = pd.read_csv(f'../offline_VFA/params/params_{selected_set}_{selected_case}_{selected_rep}.csv')
+        func_dict = dict(zip(func_params['key'], func_params['value']))
+    else:
+        # linear_regression_test
+        with open(f'../offline_VFA/linear_regression_test/data/result_dict_{selected_set}_{selected_case}_{selected_rep}.pkl', 'rb') as f:
+            func_dict = pickle.load(f)
 
     start = time.process_time()
     test_result, test_result_work, test_distance, test_value = [], [], [], []
@@ -23,7 +32,7 @@ if __name__ == '__main__':
         test = Simulation(**test_case, func_dict=func_dict)
         test.single = False
         test.policy = 'online_VFA'
-        test.print_action = False
+        test.print_action = True
         test.run()
         test_result.append(test.success)
         test_result_work.append(test.success_work)

@@ -23,6 +23,10 @@ class VFATrainer:
         for _ in range(num_of_funcs):
             self.func_dict[func_names[_]] = 0
 
+        # 自变量和因变量
+        self.x = []
+        self.y = []
+
         # RLS params
         self.B = None
         self.init_dim = 0
@@ -35,16 +39,40 @@ class VFATrainer:
 
     def init_B(self):
         """初始化B_0矩阵"""
-        B = np.empty(shape=(0, self.num_of_funcs))
+        X = np.empty(shape=(0, self.num_of_funcs))
+        y_list = []
         while self.init_dim <= self.num_of_funcs:
             sim = Simulation(**self.test_case, func_dict=self.func_dict)
             sim.single = False
             sim.policy = 'offline_VFA_train'
+            sim.random_choice_to_init_B = True
             sim.run()
-            for _ in range(0, len(sim.basis_func_property)-1):
-                B = np.append(B, self.convert_x_to_vector(sim.basis_func_property[_]), axis=0)
-            self.init_dim = B.shape[0]
-        B_0 = np.dot(B.T, B)
+
+            new_cost = list(np.cumsum(sim.cost_list[::-1]))
+            new_cost = [val+sim.cost_after_work for val in new_cost]
+            zipped = zip(sim.basis_func_property[-2::-1], new_cost[:-1])
+            for pair in zipped:
+                new_x_T, new_y = self.convert_x_to_vector(pair[0]), pair[1]
+                test = np.append(X, new_x_T, axis=0)
+                if test.shape[0] >= self.num_of_funcs and np.linalg.matrix_rank(test) == self.num_of_funcs:
+                    X = np.append(X, new_x_T, axis=0)
+                    y_list.append(new_y)
+                    break
+                else:
+                    if X.shape[0] == 0:
+                        X = np.append(X, new_x_T, axis=0)
+                        y_list.append(new_y)
+                    elif np.linalg.matrix_rank(test) > np.linalg.matrix_rank(X):
+                        X = np.append(X, new_x_T, axis=0)
+                        y_list.append(new_y)
+            self.init_dim = X.shape[0]
+            # print(f'current X size: {X.shape}')
+
+        Y = np.array(y_list).reshape((-1, 1))
+        theta = np.linalg.inv(X.T @ X) @ X.T @ Y
+        self.convert_vector_to_theta(theta_array=theta)
+        B_0 = np.linalg.inv(np.dot(X.T, X))
+        print(f'B matrix successfully initialized, shape: {B_0.shape}')
         return B_0
 
     def init_func_dict(self):
@@ -63,32 +91,39 @@ class VFATrainer:
             sim.policy = 'offline_VFA_train'
             # sim.print_action = True
             sim.run()
-            self.update_func_dict(cost_list=sim.cost_list, property_list=sim.basis_func_property)
+            self.update_func_dict(
+                cost_list=sim.cost_list, property_list=sim.basis_func_property, cost_after_work=sim.cost_after_work)
             if self.rep % 10 == 0 and self.rep > 0:
                 cost_sum = sum(sim.cost_list)
-                real_sum = sim.success_work
+                real_sum = sim.success_work_till_done
+                real_sum_done = sim.success_work
                 print('Training process: {}/{}'.format(self.rep, self.train_rep))
-                print(f'cost_sum: {cost_sum}, real_sum: {real_sum}')
+                print(
+                    f'cost_sum: {cost_sum}, real_sum: {real_sum}, cost_sum_till_sim_end: {cost_sum + sim.cost_after_work}, real_sum_till_sim_end: {real_sum_done}')
 
             self.rep += 1
             if self.rep in print_list:
                 self.to_csv()
 
-    def update_func_dict(self, cost_list: list, property_list: list):
+    def update_func_dict(self, cost_list: list, property_list: list, cost_after_work: float = 0):
         """
         更新参数表
 
         :param cost_list: 每次仿真各阶段成本列表
         :param property_list: 每次仿真各阶段特征值列表
+        :param cost_after_work: relocation结束后的成本
         :return:
         """
         if self.method == 'RLS':
             assert self.B is not None, 'B is None!'
             new_cost = list(np.cumsum(cost_list[::-1]))
+            new_cost = [val+cost_after_work for val in new_cost]
             zipped = zip(property_list[-2::-1], new_cost[:-1])
             for pair in zipped:
                 theta = self.convert_theta_to_vector()
                 new_x, new_y = self.convert_x_to_vector(pair[0]).T, pair[1]
+                self.x.append(new_x)
+                self.y.append(new_y)
                 # todo 导出数据单独查看回归准确性
                 self.gamma = LAMBDA + float(new_x.T @ self.B @ new_x)
                 assert self.gamma != 0, f'{new_x, float(new_x.T @ self.B @ new_x)}'
@@ -135,15 +170,32 @@ if __name__ == '__main__':
     case_dict = {
         'phi_1': {'trainer_name': 'phi_1', 'num_of_funcs': 1, 'func_names': ['const']},
         'phi_2': {'trainer_name': 'phi_2', 'num_of_funcs': 2, 'func_names': ['const', 'veh_load']},
-        'phi_3': {'trainer_name': 'phi_3', 'num_of_funcs': 2 + 25, 'func_names': ['const', 'veh_load']}
+        'phi_3': {'trainer_name': 'phi_3', 'num_of_funcs': 2 + 25, 'func_names': ['const', 'veh_load']},
+        'phi_4': {'trainer_name': 'phi_4', 'num_of_funcs': 2 + 25 + 25, 'func_names': ['const', 'veh_load']},
+        'phi_5': {'trainer_name': 'phi_5', 'num_of_funcs': 2 + 25 + 25 + 25, 'func_names': ['const', 'veh_load']},
+        'phi_6': {'trainer_name': 'phi_6', 'num_of_funcs': 2 + 25 + 25, 'func_names': ['const', 'veh_load']},
     }
     # fix case phi_3
     for i in range(1, 26):
         case_dict['phi_3']['func_names'].append(f'veh_des_{i}')
+    # fix case phi_4
+    for i in range(1, 26):
+        case_dict['phi_4']['func_names'].append(f'veh_des_{i}')
+        case_dict['phi_4']['func_names'].append(f'orders_till_sim_end_{i}')
+    # fix case phi_5
+    for i in range(1, 26):
+        case_dict['phi_5']['func_names'].append(f'veh_des_{i}')
+        case_dict['phi_5']['func_names'].append(f'orders_till_sim_end_{i}')
+        case_dict['phi_5']['func_names'].append(f'num_self_{i}')
+    # fix case phi_6
+    for i in range(1, 26):
+        case_dict['phi_6']['func_names'].append(f'veh_des_{i}')
+    for i in range(1, 26):
+        case_dict['phi_6']['func_names'].append(f'self_order_proportion_{i}')
 
     # train process
-    train_case = 'phi_3'
-    train_rep_list = [100, 200, 500]  # 递增训练次数
+    train_case = 'phi_6'
+    train_rep_list = [100, 200, 500, 1000, 2000, 3000, 4000]  # 递增训练次数
 
     start = time.process_time()
     trainer = VFATrainer(
@@ -154,3 +206,11 @@ if __name__ == '__main__':
     trainer.train(print_list=train_rep_list)
     end = time.process_time()
     print('Running time: %s Seconds' % (end - start))
+
+    # test process output
+    main_dict = {}
+    for i in range(len(trainer.func_names)):
+        main_dict[trainer.func_names[i]] = [val[i][0] for val in trainer.x]
+    main_dict['y'] = list(trainer.y)
+    main_df = pd.DataFrame(main_dict)
+    main_df.to_csv(rf"linear_regression_test\data\linear_regression_test_{trainer.name}_25_{train_rep_list[-1]}.csv")
