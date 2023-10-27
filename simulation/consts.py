@@ -7,6 +7,7 @@ SIM_END_T = 22 * 60  # 22 * 60
 
 RE_START_T = 14 * 60
 RE_END_T = 20 * 60
+RECORD_WORK_T = RE_START_T
 
 # number of stations
 NUM_STATIONS = 25
@@ -26,7 +27,7 @@ VEH_CAP = 50
 # operation time per bike
 OPERATION_TIME = 0.5
 # operation const time
-CONST_OPERATION = 15
+CONST_OPERATION = 10
 
 # rollout simulation times
 ROLLOUT_SIM_TIMES = 32
@@ -48,9 +49,13 @@ SINGLE_ROLLOUT_HORIZON = 360
 DIST_FIX = 4
 
 # offline VFA training params
-SAFETY_INV_LB = 0.1
-SAFETY_INV_UB = 0.9
-EPSILON = 0.05  # in epsilon-greedy policy
+
+POLICY_DURATION = 30  # in minute, the policy changes every POLICY_DURATION minutes
+
+SAFETY_INV_LB = 0
+SAFETY_INV_UB = 1
+EPSILON = 0.1  # in epsilon-greedy policy
 DISTANCE_COST_UNIT = 0.25
 ORDER_INCOME_UNIT = 2
 LAMBDA = 0.98  # in RLS algorithm
+SMALL_CONST_IN_INIT = 0.01  # in RLS algorithm

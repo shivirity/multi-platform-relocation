@@ -64,6 +64,7 @@ class Simulation:
         self.empty_loss_list = []
 
         self.veh_distance = 0  # total distance of relocation vehicle
+        self.return_count_time = 0  # number of times that vehicle returns to depot
 
         # policy
         # single is True: 'STR', 'rollout', 'GLA'
@@ -82,10 +83,29 @@ class Simulation:
         # offline training property
         self.random_choice_to_init_B = False
         self.cost_list = []
+        self.dec_time_list = []
         self.basis_func_property = []
         self.func_dict = kwargs['func_dict'] if 'func_dict' in kwargs.keys() else None
+        self.MLP_model = kwargs['MLP_model'] if 'MLP_model' in kwargs.keys() else None
         self.cost_after_work = 0
         # self.func_var_dict = self.init_func_var_dict()
+        # online VFA property
+        self.best_val_list = []
+
+        # MLP test
+        self.nn_var_list = ['time', 'veh_load', 'des_inv']
+        for i in range(1, 26):
+            self.nn_var_list.append(f'veh_loc_{i}')
+        for i in range(1, 26):
+            self.nn_var_list.append(f'num_self_{i}')
+        for i in range(1, 26):
+            self.nn_var_list.append(f'num_oppo_{i}')
+        for i in range(1, 26):
+            self.nn_var_list.append(f'orders_till_sim_end_{i}')
+        for i in range(1, 26):
+            self.nn_var_list.append(f'bikes_s_arr_till_sim_end{i}')
+        for i in range(1, 26):
+            self.nn_var_list.append(f'bikes_c_arr_till_sim_end{i}')
 
     @property
     def self_list(self):
@@ -106,9 +126,6 @@ class Simulation:
             'const': 1,  # const
             'veh_load': self.veh_info[2],  # load on the relocation vehicle
         }
-        # binary location
-        for i in range(1, len(self.stations) + 1):
-            var_dict[f'veh_des_{i}'] = 1 if self.veh_info[1] == i else 0
         return var_dict
 
     @staticmethod
@@ -142,9 +159,9 @@ class Simulation:
             new_log[key] = (value.num_self, value.num_opponent)
         return new_log
 
-    def get_estimate_value(self, inv_dec: int, route_dec: int) -> float:
+    def get_estimate_value_linear(self, inv_dec: int, route_dec: int) -> float:
         """返回离线训练时当前动作的总价值函数（估计）"""
-        assert self.single is False
+        assert self.single is False and self.policy in ['offline_VFA', 'online_VFA']
         cur_station, cur_load = self.veh_info[0], self.veh_info[2]
         if cur_station:  # at station
             if inv_dec > self.stations[cur_station].num_self:
@@ -160,7 +177,7 @@ class Simulation:
                                        cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
             cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
             # cost at current step
-            cost_exp = self.get_estimated_cost(
+            order_exp = self.get_estimated_order(
                 step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
             )
             # cost after current step
@@ -168,12 +185,13 @@ class Simulation:
             # instruction fix
             var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
             # calculate cost after
-            for key, value in self.func_dict.items():
+            policy_t_idx = int(self.t / POLICY_DURATION)
+            for key, value in self.func_dict[policy_t_idx].items():
                 cost_after += value * var_dict[key]
             # route cost
             route_cost = on_route_t * DISTANCE_COST_UNIT
 
-            return cost_exp + cost_after - route_cost
+            return ORDER_INCOME_UNIT * order_exp + cost_after - route_cost
 
         else:  # at depot
             assert inv_dec < 0 and route_dec != 0
@@ -181,7 +199,7 @@ class Simulation:
             num_oppo_list = [val.num_opponent for val in self.stations.values()]
             cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
             # cost at current step
-            cost_exp = self.get_estimated_cost(
+            order_exp = self.get_estimated_order(
                 step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
             )
             # cost after current step
@@ -189,15 +207,70 @@ class Simulation:
             # instruction fix
             var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
             # calculate cost after
-            for key, value in self.func_dict.items():
+            policy_t_idx = int(self.t / POLICY_DURATION)
+            for key, value in self.func_dict[policy_t_idx].items():
                 cost_after += value * var_dict[key]
             # route cost
             route_cost = cur_step_t * DISTANCE_COST_UNIT
 
             assert isinstance(cost_after - route_cost, float), f'cost_after={cost_after}, route_cost={route_cost}'
-            return cost_exp + cost_after - route_cost
+            return ORDER_INCOME_UNIT * order_exp + cost_after - route_cost
 
-    def get_estimated_cost(self, step_t: int, num_self: list, num_oppo: list, start_t: int) -> float:
+    def get_estimate_value_MLP(self, inv_dec: int, route_dec: int) -> float:
+        assert self.single is False and self.policy == 'MLP_test'
+        cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+        if cur_station:  # at station
+            if inv_dec > self.stations[cur_station].num_self:
+                ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+            elif inv_dec < self.stations[cur_station].num_self:
+                ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+            else:
+                ins = 0
+            num_self_list = [val.num_self for val in self.stations.values()]
+            num_oppo_list = [val.num_opponent for val in self.stations.values()]
+            num_self_list[cur_station - 1] += ins
+            on_route_t = 5 * (int((self.dist[
+                                       cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
+            cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+            # cost at current step
+            order_exp = self.get_estimated_order(
+                step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+            )
+            # cost after current step
+            cost_after = 0
+            # instruction fix
+            var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+            # calculate cost after
+            x_input = np.array([var_dict[key] for key in self.nn_var_list]).reshape(1, -1)
+            cost_after = float(self.MLP_model.predict(x_input)[0])
+            # route cost
+            route_cost = on_route_t * DISTANCE_COST_UNIT
+
+            return ORDER_INCOME_UNIT * order_exp + cost_after - route_cost
+
+        else:  # at depot
+            assert inv_dec < 0 and route_dec != 0
+            num_self_list = [val.num_self for val in self.stations.values()]
+            num_oppo_list = [val.num_opponent for val in self.stations.values()]
+            cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
+            # cost at current step
+            order_exp = self.get_estimated_order(
+                step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+            )
+            # cost after current step
+            veh_load, cost_after = cur_load, 0
+            # instruction fix
+            var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+            # calculate cost after
+            x_input = np.array([var_dict[key] for key in self.nn_var_list]).reshape(1, -1)
+            cost_after = float(self.MLP_model.predict(x_input)[0])
+            # route cost
+            route_cost = cur_step_t * DISTANCE_COST_UNIT
+
+            assert isinstance(cost_after - route_cost, float), f'cost_after={cost_after}, route_cost={route_cost}'
+            return ORDER_INCOME_UNIT * order_exp + cost_after - route_cost
+
+    def get_estimated_order(self, step_t: int, num_self: list, num_oppo: list, start_t: int) -> float:
         """
         返回当前动作的价值函数
 
@@ -207,7 +280,7 @@ class Simulation:
         :param start_t: 初始状态的时间
         :return:
         """
-        tmp_t, cost_exp = 0, 0
+        tmp_t, order_exp = 0, 0
         num_self_list, num_oppo_list = list(num_self), list(num_oppo)
         while tmp_t < step_t:
             # arrive
@@ -231,9 +304,9 @@ class Simulation:
                              if num_self_list[i - 1] + num_oppo_list[i - 1] > 0 else num_oppo_list[i - 1]
                              for i in range(1, len(self.stations) + 1)
                              ]
-            cost_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
+            order_exp += sum([num_self_list_a[i] - num_self_list[i] for i in range(len(num_self_list))])
             tmp_t += MIN_STEP
-        return cost_exp
+        return order_exp
 
     def get_post_decision_var_dict(self, inv_dec: int, route_dec: int) -> dict:
         """返回离线训练时当前动作后的变量字典"""
@@ -254,38 +327,107 @@ class Simulation:
 
         else:
             assert inv_dec < 0 and route_dec != 0
+            ins = 0
             veh_load = cur_load
             if 'veh_load' in var_dict.keys():
                 var_dict['veh_load'] = veh_load
 
+        # binary route decision
+        # for i in range(1, len(self.stations) + 1):
+        #     var_dict[f'veh_des_{i}'] = 1 if route_dec == i else 0
+
+        # binary vehicle location
+        for i in range(1, len(self.stations) + 1):
+            var_dict[f'veh_loc_{i}'] = 1 if cur_station == i else 0
+
+        # destination station inventory
+        var_dict[f'des_inv'] = self.stations[route_dec].num_self
+
+        # time spent on the route
         on_route_t = 5 * (int((self.dist[
                                    cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
         cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+        # step time
+        var_dict['step_t'] = cur_step_t
+        var_dict['time'] = self.t + cur_step_t
+
         for i in range(1, len(self.stations) + 1):
             # orders till sim ends
-            order = self.lambda_s_array[int((self.t + cur_step_t) / MIN_STEP):int(SIM_END_T / MIN_STEP), i - 1].sum() + \
-                    self.lambda_c_array[int((self.t + cur_step_t) / MIN_STEP):int(SIM_END_T / MIN_STEP), i - 1].sum()
+            order = self.mu_array[int((self.t + cur_step_t) / MIN_STEP):int(SIM_END_T / MIN_STEP), i - 1].sum()
+            next_2_hour_order = self.mu_array[
+                                int((self.t + cur_step_t) / MIN_STEP):int((self.t + cur_step_t + 120) / MIN_STEP),
+                                i - 1].sum()
+            arr_s = self.lambda_s_array[int((self.t + cur_step_t) / MIN_STEP):int(SIM_END_T / MIN_STEP), i - 1].sum()
+            arr_c = self.lambda_c_array[int((self.t + cur_step_t) / MIN_STEP):int(SIM_END_T / MIN_STEP), i - 1].sum()
+
+            var_dict[f'bikes_s_arr_till_sim_end{i}'], var_dict[f'bikes_c_arr_till_sim_end{i}'] = arr_s, arr_c
             var_dict[f'orders_till_sim_end_{i}'] = order
             # number of bikes from our platform at stations (proportion)
+            """
             if i != cur_station:
                 if self.stations[i].num_self + self.stations[i].num_opponent > 0:
-                    var_dict[f'self_order_proportion_{i}'] = \
+                    var_dict[f'self_order_proportion_till_ends_{i}'] = \
                         self.stations[i].num_self / (self.stations[i].num_self + self.stations[i].num_opponent) * order
+                    var_dict[f'self_order_proportion_next_2_hours_{i}'] = \
+                        self.stations[i].num_self / (
+                                    self.stations[i].num_self + self.stations[i].num_opponent) * next_2_hour_order
                 else:
-                    var_dict[f'self_order_proportion_{i}'] = 0
+                    var_dict[f'self_order_proportion_till_ends_{i}'] = 0
+                    var_dict[f'self_order_proportion_next_2_hours_{i}'] = 0
             else:
-                if self.stations[i].num_self + self.stations[i].num_opponent > 0:
-                    var_dict[f'self_order_proportion_{i}'] = \
-                        self.stations[i].num_self + ins / (self.stations[i].num_self + ins + self.stations[i].num_opponent) * order
+                assert cur_station > 0
+                if self.stations[i].num_self + self.stations[i].num_opponent + ins > 0:
+                    var_dict[f'self_order_proportion_till_ends_{i}'] = \
+                        (self.stations[i].num_self + ins) / (
+                                    self.stations[i].num_self + ins + self.stations[i].num_opponent) * order
+                    var_dict[f'self_order_proportion_next_2_hours_{i}'] = \
+                        (self.stations[i].num_self + ins) / (
+                                    self.stations[i].num_self + ins + self.stations[i].num_opponent) * next_2_hour_order
                 else:
-                    var_dict[f'self_order_proportion_{i}'] = 0
+                    var_dict[f'self_order_proportion_till_ends_{i}'] = 0
+                    var_dict[f'self_order_proportion_next_2_hours_{i}'] = 0
+            """
+        """
+        for i in range(1, len(self.stations) + 1):
+            next_2_hour_s_arr = self.lambda_s_array[
+                                int((self.t + cur_step_t) / MIN_STEP):int((self.t + cur_step_t + 120) / MIN_STEP),
+                                i - 1].sum()
+            next_2_hour_c_arr = self.lambda_c_array[
+                                int((self.t + cur_step_t) / MIN_STEP):int((self.t + cur_step_t + 120) / MIN_STEP),
+                                i - 1].sum()
+            next_2_hour_dep = self.mu_array[
+                              int((self.t + cur_step_t) / MIN_STEP):int((self.t + cur_step_t + 120) / MIN_STEP),
+                              i - 1].sum()
+            if i != cur_station:
+                if self.stations[i].num_self + next_2_hour_s_arr + self.stations[i].num_opponent + next_2_hour_c_arr > 0:
+                    var_dict[f'net_demand_in_2_hours_{i}'] = \
+                        next_2_hour_dep * \
+                        ((self.stations[i].num_self + next_2_hour_s_arr) / (
+                                self.stations[i].num_self + next_2_hour_s_arr + self.stations[
+                            i].num_opponent + next_2_hour_c_arr)) \
+                        - next_2_hour_s_arr
+                else:
+                    var_dict[f'net_demand_in_2_hours_{i}'] = 0
+            else:
+                if self.stations[i].num_self + ins + next_2_hour_s_arr + self.stations[i].num_opponent + next_2_hour_c_arr > 0:
+                    var_dict[f'net_demand_in_2_hours_{i}'] = \
+                        next_2_hour_dep * \
+                        ((self.stations[i].num_self + ins + next_2_hour_s_arr) / (
+                                self.stations[i].num_self + ins + next_2_hour_s_arr + self.stations[
+                            i].num_opponent + next_2_hour_c_arr)) \
+                        - next_2_hour_s_arr
+                else:
+                    var_dict[f'net_demand_in_2_hours_{i}'] = 0
+        """
 
         # number of bikes from our platform at stations
         for i in range(1, len(self.stations) + 1):
             if i != cur_station:
                 var_dict[f'num_self_{i}'] = self.stations[i].num_self
+                var_dict[f'num_oppo_{i}'] = self.stations[i].num_opponent
             else:
                 var_dict[f'num_self_{i}'] = self.stations[i].num_self + ins
+                var_dict[f'num_oppo_{i}'] = self.stations[i].num_opponent
 
         return var_dict
 
@@ -435,12 +577,15 @@ class Simulation:
                 # choice set (without decision levels)
                 inv_options = [i for i in range(int(SAFETY_INV_LB * self.stations[cur_station].cap),
                                                 int(SAFETY_INV_UB * self.stations[cur_station].cap) + 1)]
+                min_inv_option = max(0, cur_load + self.stations[cur_station].num_self - VEH_CAP)
+                max_inv_option = min(self.stations[cur_station].cap, cur_load + self.stations[cur_station].num_self)
+                inv_options = [i for i in inv_options if min_inv_option <= i <= max_inv_option]
                 station_options = [i for i in self.stations.keys()]
                 best_dec, best_val = None, -np.inf
                 for inv in inv_options:
                     for station in station_options:
                         # cost + estimated value
-                        est_val = self.get_estimate_value(inv_dec=inv, route_dec=station)
+                        est_val = self.get_estimate_value_linear(inv_dec=inv, route_dec=station)
                         if est_val > best_val:
                             best_dec, best_val = (inv, station), est_val
                 # epsilon-greedy
@@ -465,22 +610,23 @@ class Simulation:
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
                 cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
                 # cost at current step
-                cost_exp = self.get_estimated_cost(
+                order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
                 )
-                self.cost_list.append(cost_exp)
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * on_route_t)
                 self.basis_func_property.append(dict(post_dec_var_dict))
+                self.dec_time_list.append(self.t)
 
             else:  # at depot
                 inv_dec = -1
                 station_options = [i for i in self.stations.keys()]
                 best_dec, best_val = None, -np.inf
                 for station in station_options:
-                    est_val = self.get_estimate_value(inv_dec=inv_dec, route_dec=station)
+                    est_val = self.get_estimate_value_linear(inv_dec=inv_dec, route_dec=station)
                     if est_val > best_val:
                         best_dec, best_val = station, est_val
                 # epsilon-greedy
-                if random.random() < EPSILON:
+                if random.random() < EPSILON or self.random_choice_to_init_B:
                     route_dec = int(random.sample(station_options, 1)[0])
                 else:
                     route_dec = best_dec
@@ -491,12 +637,13 @@ class Simulation:
                 num_oppo_list = [val.num_opponent for val in self.stations.values()]
                 cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
                 # cost at current step
-                cost_exp = self.get_estimated_cost(
+                order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
                 )
 
-                self.cost_list.append(cost_exp)
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * cur_step_t)
                 self.basis_func_property.append(dict(post_dec_var_dict))
+                self.dec_time_list.append(self.t)
 
         elif self.policy == 'online_VFA':
             cur_station, cur_load = self.veh_info[0], self.veh_info[2]
@@ -504,25 +651,121 @@ class Simulation:
                 # choice set (without decision levels)
                 inv_options = [i for i in range(int(SAFETY_INV_LB * self.stations[cur_station].cap),
                                                 int(SAFETY_INV_UB * self.stations[cur_station].cap) + 1)]
+                min_inv_option = max(0, cur_load + self.stations[cur_station].num_self - VEH_CAP)
+                max_inv_option = min(self.stations[cur_station].cap, cur_load + self.stations[cur_station].num_self)
+                inv_options = [i for i in inv_options if min_inv_option <= i <= max_inv_option]
                 station_options = [i for i in self.stations.keys()]
                 best_dec, best_val = None, -np.inf
                 for inv in inv_options:
                     for station in station_options:
                         # cost + estimated value
-                        est_val = self.get_estimate_value(inv_dec=inv, route_dec=station)
+                        est_val = self.get_estimate_value_linear(inv_dec=inv, route_dec=station)
                         if est_val > best_val:
                             best_dec, best_val = (inv, station), est_val
+                self.best_val_list.append(best_val + sum(self.cost_list))
                 inv_dec, route_dec = best_dec[0], best_dec[1]
+
+                # estimate current cost
+                if inv_dec > self.stations[cur_station].num_self:
+                    ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+                elif inv_dec < self.stations[cur_station].num_self:
+                    ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+                else:
+                    ins = 0
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                num_self_list[cur_station - 1] += ins
+                on_route_t = 5 * (int((self.dist[
+                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                # cost at current step
+                order_exp = self.get_estimated_order(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * on_route_t)
 
             else:  # at depot
                 inv_dec = -1
                 station_options = [i for i in self.stations.keys()]
                 best_dec, best_val = None, -np.inf
                 for station in station_options:
-                    est_val = self.get_estimate_value(inv_dec=inv_dec, route_dec=station)
+                    est_val = self.get_estimate_value_linear(inv_dec=inv_dec, route_dec=station)
                     if est_val > best_val:
                         best_dec, best_val = station, est_val
+                self.best_val_list.append(best_val + sum(self.cost_list))
                 route_dec = best_dec
+
+                # estimate current cost
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
+                # cost at current step
+                order_exp = self.get_estimated_order(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * cur_step_t)
+
+        elif self.policy == 'MLP_test':
+            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+            if cur_station:  # at stations
+                # choice set (without decision levels)
+                inv_options = [i for i in range(int(SAFETY_INV_LB * self.stations[cur_station].cap),
+                                                int(SAFETY_INV_UB * self.stations[cur_station].cap) + 1)]
+                min_inv_option = max(0, cur_load + self.stations[cur_station].num_self - VEH_CAP)
+                max_inv_option = min(self.stations[cur_station].cap, cur_load + self.stations[cur_station].num_self)
+                inv_options = [i for i in inv_options if min_inv_option <= i <= max_inv_option]
+                station_options = [i for i in self.stations.keys()]
+                best_dec, best_val = None, -np.inf
+                for inv in inv_options:
+                    for station in station_options:
+                        # cost + estimated value
+                        est_val = self.get_estimate_value_MLP(inv_dec=inv, route_dec=station)
+                        if est_val > best_val:
+                            best_dec, best_val = (inv, station), est_val
+                self.best_val_list.append(best_val + sum(self.cost_list))
+                inv_dec, route_dec = best_dec[0], best_dec[1]
+
+                # estimate current cost
+                if inv_dec > self.stations[cur_station].num_self:
+                    ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+                elif inv_dec < self.stations[cur_station].num_self:
+                    ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+                else:
+                    ins = 0
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                num_self_list[cur_station - 1] += ins
+                on_route_t = 5 * (int((self.dist[
+                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                # cost at current step
+                order_exp = self.get_estimated_order(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * on_route_t)
+
+            else:  # at depot
+                inv_dec = -1
+                station_options = [i for i in self.stations.keys()]
+                best_dec, best_val = None, -np.inf
+                for station in station_options:
+                    est_val = self.get_estimate_value_MLP(inv_dec=inv_dec, route_dec=station)
+                    if est_val > best_val:
+                        best_dec, best_val = station, est_val
+                self.best_val_list.append(best_val + sum(self.cost_list))
+                route_dec = best_dec
+
+                # estimate current cost
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                cur_step_t = 5 * (int((self.dist[cur_station, route_dec] - 0.2) / 5) + 1)  # time on route
+                # cost at current step
+                order_exp = self.get_estimated_order(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * cur_step_t)
 
         else:
             print('policy type error.')
@@ -705,12 +948,49 @@ class Simulation:
                         for station in stations
                     ]
                     route_dec = stations[net_demand_list.index(max(net_demand_list))]
+
+                # estimate current cost
+                if inv_dec > self.stations[cur_station].num_self:
+                    ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
+                elif inv_dec < self.stations[cur_station].num_self:
+                    ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
+                else:
+                    ins = 0
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                num_self_list[cur_station - 1] += ins
+                on_route_t = 5 * (int((self.dist[
+                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                # cost at current step
+                order_exp = self.get_estimated_order(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+
+                post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * on_route_t)
+                self.basis_func_property.append(dict(post_dec_var_dict))
+
+
             else:  # at depot
                 inv_dec = -1
                 stations = [i for i in self.stations.keys() if i != cur_station]
                 random.shuffle(stations)
                 num_self_list = [self.stations[station].num_self for station in stations]
                 route_dec = stations[num_self_list.index(max(num_self_list))]
+
+                num_self_list = [val.num_self for val in self.stations.values()]
+                num_oppo_list = [val.num_opponent for val in self.stations.values()]
+                cur_step_t = 5 * (int((self.dist[
+                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
+                # cost at current step
+                order_exp = self.get_estimated_order(
+                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
+                )
+
+                post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
+                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * cur_step_t)
+                self.basis_func_property.append(dict(post_dec_var_dict))
 
         else:
             print('policy type error.')
@@ -773,7 +1053,7 @@ class Simulation:
                 sum_success = sum(success_list)
                 self.success += sum_success
                 self.success_list.append(sum_success)
-                if self.t >= RE_START_T:
+                if self.t >= RECORD_WORK_T:
                     self.success_work += sum_success
                     self.success_work_list.append(sum_success)
                     if self.t < RE_END_T:
@@ -931,7 +1211,7 @@ class Simulation:
             sum_success = sum(success_list)
             self.success += sum_success
             self.success_list.append(sum_success)
-            if self.t >= RE_START_T:
+            if self.t >= RECORD_WORK_T:
                 self.success_work += sum_success
                 self.success_work_list.append(sum_success)
                 if self.t < RE_END_T:
@@ -959,6 +1239,20 @@ class Simulation:
                 if self.veh_info[0] != self.veh_info[1] else 0
             self.veh_distance += move_dist
             self.veh_info[0] = self.veh_info[1]  # current_loc = next_loc
+
+        if self.t >= RE_END_T and self.return_count_time < 0.8:
+            assert self.return_count_time == 0
+            return_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
+                if self.veh_info[0] != self.veh_info[1] else 0
+            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
+            assert cur_station > 0
+
+            # put all the bikes at current station
+            self.stations[cur_station].num_self += cur_load
+            self.veh_info[2] = 0
+
+            self.veh_distance += return_dist
+            self.return_count_time += 1
         self._log.append(self.simulation_log_format(self.stations))
 
     def step_single_info(self, end_t: int):
@@ -1034,8 +1328,9 @@ class Simulation:
                 t_dec = STAY_TIME
                 num_self_list = [val.num_self for val in self.stations.values()]
                 num_oppo_list = [val.num_opponent for val in self.stations.values()]
-                self.cost_after_work += self.get_estimated_cost(step_t=t_dec, num_self=num_self_list,
-                                                                num_oppo=num_oppo_list, start_t=self.t)
+                self.cost_after_work += ORDER_INCOME_UNIT * \
+                                        self.get_estimated_order(step_t=t_dec, num_self=num_self_list,
+                                                                 num_oppo=num_oppo_list, start_t=self.t)
             else:
                 t_dec = STAY_TIME
 
