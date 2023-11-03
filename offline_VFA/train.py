@@ -12,12 +12,14 @@ class VFATrainer:
 
     test_case = test_case_25
 
-    def __init__(self, trainer_name: str, num_of_funcs: int, func_names: list, train_rep: int, method: str = 'RLS'):
+    def __init__(self, trainer_name: str, num_of_funcs: int, func_names: list,
+                 train_rep: int, single: bool = False, method: str = 'RLS'):
         """传入变量个数，变量名，建立变量字典"""
         self.name = trainer_name
         self.num_of_funcs = num_of_funcs
         self.func_names = func_names
         self.train_rep = train_rep
+        self.single = single
         self.method = method
         self.func_dict = {}
         self.init_func_dict()
@@ -55,8 +57,7 @@ class VFATrainer:
         y_list = []
         try_times = 0
         while self.init_dim < self.num_of_funcs and try_times <= 20:
-            sim = Simulation(**self.test_case, func_dict=self.func_dict)
-            sim.single = False
+            sim = Simulation(**self.test_case, func_dict=self.func_dict, single=self.single)
             sim.policy = 'offline_VFA_train'
             sim.random_choice_to_init_B = True
             sim.run()
@@ -115,8 +116,7 @@ class VFATrainer:
         self.init_func_dict()
         recent_10 = []
         while self.rep < self.train_rep:
-            sim = Simulation(**self.test_case, func_dict=self.func_dict)
-            sim.single = False
+            sim = Simulation(**self.test_case, func_dict=self.func_dict, single=self.single)
             sim.policy = 'offline_VFA_train'
             # sim.print_action = True
             sim.run()
@@ -181,8 +181,8 @@ class VFATrainer:
                 self.x.append(new_x)
                 self.y.append(new_y)
                 theta_1 = theta_0 - self.alpha[f'{new_t_idx}'] * (float(new_x.T @ theta_0) - new_y) * new_x
-                print('new_y', new_y)
-                print('multip:', new_x.T @ theta_1)
+                # print('new_y', new_y)
+                # print('multip:', new_x.T @ theta_1)
                 self.convert_vector_to_theta(index=new_t_idx, theta_array=theta_1)
         else:
             assert False, 'Invalid method!'
@@ -230,6 +230,7 @@ if __name__ == '__main__':
         'phi_7': {'trainer_name': 'phi_7', 'num_of_funcs': 4 + 25 + 25 + 25, 'func_names': ['const', 'veh_load', 'step_t', 'des_inv']},
         'phi_8': {'trainer_name': 'phi_8', 'num_of_funcs': 4 + 25 + 25 + 25 + 25, 'func_names': ['const', 'veh_load', 'step_t', 'des_inv']},
         'phi_9': {'trainer_name': 'phi_9', 'num_of_funcs': 4 + 25 + 25 + 25 + 25 + 25 + 25, 'func_names': ['const', 'time', 'veh_load', 'des_inv']},
+        'phi_10': {'trainer_name': 'phi_10', 'num_of_funcs': 4 + 25 + 25, 'func_names': ['const', 'veh_load', 'step_t', 'des_inv'], 'single': True},  # single info case for phi_7
     }
     # fix case phi_3
     for i in range(1, 26):
@@ -278,15 +279,21 @@ if __name__ == '__main__':
     for i in range(1, 26):
         case_dict['phi_9']['func_names'].append(f'bikes_c_arr_till_sim_end{i}')
 
+    # fix case phi_10
+    for i in range(1, 26):
+        case_dict['phi_10']['func_names'].append(f'veh_loc_{i}')
+    for i in range(1, 26):
+        case_dict['phi_10']['func_names'].append(f'num_self_{i}')
+
     # train process
-    train_case = 'phi_7'
+    train_case = 'phi_10'
     train_rep_list = [100, 250, 500, 750, 1000]  # 递增训练次数
 
     start = time.process_time()
     trainer = VFATrainer(
         **case_dict[train_case],
         train_rep=train_rep_list[-1],
-        method='SGA'
+        method='RLS'
     )
     trainer.train(print_list=train_rep_list)
     end = time.process_time()

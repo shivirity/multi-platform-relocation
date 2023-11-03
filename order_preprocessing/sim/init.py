@@ -7,7 +7,7 @@ from simulation.system import Station
 
 def get_init_station() -> dict:
 
-    NUM_BIKES = 1800  # 3900
+    NUM_BIKES = 3000  # 3900
 
     with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\station_list.pkl', 'rb') as file:
         station_list = pickle.load(file)
