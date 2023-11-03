@@ -37,9 +37,17 @@ class VFATrainer:
         self.gamma = {key: 0 for key in range(int(RE_START_T/POLICY_DURATION), int(RE_END_T/POLICY_DURATION) + 1)}
 
         # SGA params
+        self.alpha = None
 
         if self.method == 'RLS':
             self.init_B()
+        elif self.method == 'SGA':
+            self.init_SGA_alpha()
+
+    def init_SGA_alpha(self):
+        self.alpha = {}
+        for key in range(int(RE_START_T/POLICY_DURATION), int(RE_END_T/POLICY_DURATION) + 1):
+            self.alpha.update({f'{key}': 0.000001})
 
     def init_B(self):
         """初始化B_0矩阵"""
@@ -162,7 +170,20 @@ class VFATrainer:
                 self.convert_vector_to_theta(index=new_t_idx, theta_array=theta)
 
         elif self.method == 'SGA':
-            pass
+            new_cost = list(np.cumsum(cost_list[::-1]))
+            new_cost = [val+cost_after_work for val in new_cost]
+            zipped = zip(time_list[-2::-1], property_list[-2::-1], new_cost[:-1])
+            for pair in zipped:
+                new_t_idx, new_x, new_y = int(pair[0]/POLICY_DURATION), self.convert_x_to_vector(pair[1]).T, pair[2]
+                assert new_y > 0, f'{new_t_idx, new_x, new_y}'
+                theta_0 = self.convert_theta_to_vector(index=new_t_idx)
+                self.t.append(new_t_idx)
+                self.x.append(new_x)
+                self.y.append(new_y)
+                theta_1 = theta_0 - self.alpha[f'{new_t_idx}'] * (float(new_x.T @ theta_0) - new_y) * new_x
+                print('new_y', new_y)
+                print('multip:', new_x.T @ theta_1)
+                self.convert_vector_to_theta(index=new_t_idx, theta_array=theta_1)
         else:
             assert False, 'Invalid method!'
 
@@ -258,14 +279,14 @@ if __name__ == '__main__':
         case_dict['phi_9']['func_names'].append(f'bikes_c_arr_till_sim_end{i}')
 
     # train process
-    train_case = 'phi_9'
+    train_case = 'phi_7'
     train_rep_list = [100, 250, 500, 750, 1000]  # 递增训练次数
 
     start = time.process_time()
     trainer = VFATrainer(
         **case_dict[train_case],
         train_rep=train_rep_list[-1],
-        method='RLS'
+        method='SGA'
     )
     trainer.train(print_list=train_rep_list)
     end = time.process_time()

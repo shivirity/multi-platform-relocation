@@ -47,6 +47,11 @@ SINGLE_ROLLOUT_HORIZON = 360
 
 # distance matrix (for vehicle) fix rate (15km/h, min -> new speed, min)
 DIST_FIX = 4
+# arrival rate (bikes/5min)
+SELF_ARR_RATE_FIX = 0.8
+OPPO_ARR_RATE_FIX = 0.8
+# departure rate (bikes/5min)
+DEP_FIX = 1
 
 # offline VFA training params
 

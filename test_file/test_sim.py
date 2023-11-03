@@ -33,10 +33,10 @@ if __name__ == '__main__':
 
     test_case = test_case_25
     case_test = True
-    selected_set = 'phi_9'
+    selected_set = 'phi_7'
     selected_case = 25
     selected_duration = 30
-    selected_rep = 1000
+    selected_rep = 750
 
     # read in MLP model
     model = joblib.load(f'../offline_VFA/MLP_unit_test/model/nn_state_value_GLA_test.pkl')
@@ -59,13 +59,13 @@ if __name__ == '__main__':
     test = None
     for _ in range(100):
         test = Simulation(**test_case, func_dict=func_dict, MLP_model=model)
-        test.single = False
-        test.policy = 'MLP_test'
-        test.print_action = True
+        test.single = True
+        test.policy = 'GLA'
+        test.print_action = False
         test.run()
         form_state_value_pair = False
-        print(test.success_work, test.success_work * ORDER_INCOME_UNIT - test.veh_distance * DISTANCE_COST_UNIT)
-        print(test.best_val_list)
+        # print(test.success_work, test.success_work * ORDER_INCOME_UNIT - test.veh_distance * DISTANCE_COST_UNIT)
+        # print(test.best_val_list)
         test_result.append(test.success)
         test_result_work.append(test.success_work)
         test_distance.append(test.veh_distance)

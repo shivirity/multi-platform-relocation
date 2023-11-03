@@ -4,16 +4,18 @@ import numpy as np
 from simulation.system import Station
 from order_preprocessing.sim.init import get_init_station
 
+from simulation.consts import SELF_ARR_RATE_FIX, OPPO_ARR_RATE_FIX, DEP_FIX
+
 # load data
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\veh_distance_matrix.pkl',
           'rb') as file:
     dist_array = pickle.load(file)
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\order_preprocessing\arr_s_array.pkl',
           'rb') as file:
-    arr_s_array = pickle.load(file)
+    arr_s_array = SELF_ARR_RATE_FIX * pickle.load(file)
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\order_preprocessing\arr_c_array.pkl',
           'rb') as file:
-    arr_c_array = pickle.load(file)
+    arr_c_array = OPPO_ARR_RATE_FIX * pickle.load(file)
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\order_preprocessing\dep_s_array.pkl',
           'rb') as file:
     dep_s_array = pickle.load(file)
@@ -112,5 +114,7 @@ test_case_25 = {
     'lambda_s_array': get_part_lambda_s_array(sel_stations=station_list_25, stations=station_list),
     'lambda_c_array': get_part_lambda_c_array(sel_stations=station_list_25, stations=station_list),
 }
-
-
+test_case_25['lambda_s_array'][:144, :] = test_case_25['lambda_s_array'][:144, :] / SELF_ARR_RATE_FIX
+test_case_25['lambda_c_array'][:144, :] = test_case_25['lambda_c_array'][:144, :] / OPPO_ARR_RATE_FIX
+test_case_25['mu_s_array'][144:, :] = test_case_25['mu_s_array'][144:, :] * DEP_FIX
+test_case_25['mu_c_array'][144:, :] = test_case_25['mu_c_array'][144:, :] * DEP_FIX

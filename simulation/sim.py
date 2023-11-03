@@ -161,7 +161,7 @@ class Simulation:
 
     def get_estimate_value_linear(self, inv_dec: int, route_dec: int) -> float:
         """返回离线训练时当前动作的总价值函数（估计）"""
-        assert self.single is False and self.policy in ['offline_VFA', 'online_VFA']
+        assert self.single is False and self.policy in ['offline_VFA_train', 'online_VFA']
         cur_station, cur_load = self.veh_info[0], self.veh_info[2]
         if cur_station:  # at station
             if inv_dec > self.stations[cur_station].num_self:
@@ -1245,11 +1245,12 @@ class Simulation:
             return_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
                 if self.veh_info[0] != self.veh_info[1] else 0
             cur_station, cur_load = self.veh_info[0], self.veh_info[2]
-            assert cur_station > 0
+            assert cur_station > 0 if self.policy is not None else True
 
             # put all the bikes at current station
-            self.stations[cur_station].num_self += cur_load
-            self.veh_info[2] = 0
+            if self.policy is not None:
+                self.stations[cur_station].num_self += cur_load
+                self.veh_info[2] = 0
 
             self.veh_distance += return_dist
             self.return_count_time += 1
