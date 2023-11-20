@@ -176,7 +176,7 @@ class Simulation:
             num_self_list[cur_station - 1] += ins
             on_route_t = 5 * (int((self.dist[
                                        cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
-            cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+            cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else STAY_TIME
             # cost at current step
             order_exp = self.get_estimated_order(
                 step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -232,7 +232,7 @@ class Simulation:
             num_self_list[cur_station - 1] += ins
             on_route_t = 5 * (int((self.dist[
                                        cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
-            cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+            cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else STAY_TIME
             # cost at current step
             order_exp = self.get_estimated_order(
                 step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -364,7 +364,7 @@ class Simulation:
         # time spent on the route
         on_route_t = 5 * (int((self.dist[
                                    cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0  # time on route
-        cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+        cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
         # step time
         var_dict['step_t'] = cur_step_t
         var_dict['time'] = self.t + cur_step_t
@@ -626,7 +626,7 @@ class Simulation:
                 num_self_list[cur_station - 1] += ins
                 on_route_t = 5 * (int((self.dist[
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
                 # cost at current step
                 order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -695,7 +695,7 @@ class Simulation:
                 num_self_list[cur_station - 1] += ins
                 on_route_t = 5 * (int((self.dist[
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
                 # cost at current step
                 order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -756,7 +756,7 @@ class Simulation:
                 num_self_list[cur_station - 1] += ins
                 on_route_t = 5 * (int((self.dist[
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
                 # cost at current step
                 order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -889,7 +889,7 @@ class Simulation:
                 num_self_list[cur_station - 1] += ins
                 on_route_t = 5 * (int((self.dist[
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
                 # cost at current step
                 order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -958,7 +958,7 @@ class Simulation:
                 num_self_list[cur_station - 1] += ins
                 on_route_t = 5 * (int((self.dist[
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
                 # cost at current step
                 order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -1114,7 +1114,7 @@ class Simulation:
                 num_self_list[cur_station - 1] += ins
                 on_route_t = 5 * (int((self.dist[
                                            cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_STEP
+                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
                 # cost at current step
                 order_exp = self.get_estimated_order(
                     step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
@@ -1198,6 +1198,7 @@ class Simulation:
                 operation_duration = CONST_OPERATION
                 # 操作时流转数量
                 count_t = min(self.sim_end_time - self.t, operation_duration)
+                assert count_t == operation_duration
                 num_change_list, success_list, success_opponent_list, full_list, empty_list = \
                     self.generate_orders(gene_t=count_t)
                 # num_change
@@ -1262,6 +1263,7 @@ class Simulation:
                 operation_duration = CONST_OPERATION
                 # 操作时流转数量
                 count_t = min(self.sim_end_time - self.t, operation_duration)
+                assert count_t == operation_duration
                 num_change_list, full_list, empty_list = self.generate_orders(gene_t=count_t, single=True)
                 # num_change
                 self.apply_num_change(num_change_list)
@@ -1274,7 +1276,7 @@ class Simulation:
 
                 self.t += operation_duration
 
-    def generate_orders(self, gene_t=MIN_STEP, single=False):
+    def generate_orders(self, gene_t=MIN_RUN_STEP, single=False):
         """
         生成 time min 内订单
 
@@ -1385,17 +1387,17 @@ class Simulation:
             self.empty_loss += sum_empty_loss
             self.empty_loss_list.append(sum_empty_loss)
             # step forward
-            self.t += MIN_STEP
+            self.t += MIN_RUN_STEP
         # before operation
         if self.veh_info[1] is not None:
-            move_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
+            move_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_RUN_STEP) + 1) * MIN_RUN_STEP \
                 if self.veh_info[0] != self.veh_info[1] else 0
             self.veh_distance += move_dist
             self.veh_info[0] = self.veh_info[1]  # current_loc = next_loc
 
         if self.t >= RE_END_T and self.return_count_time < 0.8:
             assert self.return_count_time == 0
-            return_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
+            return_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_RUN_STEP) + 1) * MIN_RUN_STEP \
                 if self.veh_info[0] != self.veh_info[1] else 0
             cur_station, cur_load = self.veh_info[0], self.veh_info[2]
             assert cur_station > 0 if self.policy is not None else True
@@ -1425,10 +1427,10 @@ class Simulation:
             # empty_loss_record
             self.single_empty_list.append(list(empty_list))
             # step forward
-            self.t += MIN_STEP
+            self.t += MIN_RUN_STEP
         # before operation
         if self.veh_info[1] is not None:
-            move_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_STEP) + 1) * MIN_STEP \
+            move_dist = (int(self.dist[self.veh_info[0], self.veh_info[1]] / MIN_RUN_STEP) + 1) * MIN_RUN_STEP \
                 if self.veh_info[0] != self.veh_info[1] else 0
             self.veh_distance += move_dist
             self.veh_info[0] = self.veh_info[1]  # current_loc = next_loc
@@ -1533,7 +1535,7 @@ class Simulation:
         sim.single = True
         # start inner simulation
         while sim.t < sim.sim_end_time:
-            sim.step_single_info(end_t=MIN_STEP)
+            sim.step_single_info(end_t=MIN_RUN_STEP)
         if cur_loc < 0.1:
             rep_fail = 0
         else:

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pickle
 
+from simulation.consts import CAP_S, CAP_C
 from simulation.system import Station
 
 
@@ -41,7 +42,7 @@ def get_init_station() -> dict:
 
     # for real test
     tmp = {
-        i: Station(station_id=i, location=(i, i), capacity=50, capacity_opponent=100,
+        i: Station(station_id=i, location=(i, i), capacity=CAP_S, capacity_opponent=CAP_C,
                    num_self=max(s_list[i-1], 0),
                    num_opponent=max(c_list[i-1], 0))
         for i in range(1, 108)

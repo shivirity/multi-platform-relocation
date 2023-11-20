@@ -12,11 +12,17 @@ RECORD_WORK_T = RE_START_T
 # number of stations
 NUM_STATIONS = 25
 
+# station capacity
+CAP_S = 40
+CAP_C = 80
+
 # minimum simulation step
 MIN_STEP = 5
+# minimum simulation run step
+MIN_RUN_STEP = 10
 
 # time duration for staying at current station
-STAY_TIME = MIN_STEP
+STAY_TIME = MIN_RUN_STEP
 
 # inventory decision levels
 DEC_LEVELS = [0.2, 0.4, 0.6, 0.8]

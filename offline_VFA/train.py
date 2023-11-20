@@ -286,7 +286,7 @@ if __name__ == '__main__':
         case_dict['phi_10']['func_names'].append(f'num_self_{i}')
 
     # train process
-    train_case = 'phi_7'
+    train_case = 'phi_10'
     train_rep_list = [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]  # 递增训练次数
 
     start = time.process_time()
