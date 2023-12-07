@@ -155,6 +155,12 @@ def get_expectation() -> tuple:
                                 round((t - RE_START_T) / MIN_RUN_STEP):, num_s, num_c] += \
                                     np.dot(pi_mat[get_target_state(num_s, num_c), :], rate_array) * mu_array[
                                         round(t / MIN_STEP), sel_s - 1]
+                    else:
+                        for num_s in range(CAP_S + 1):
+                            for num_c in range(CAP_C + 1):
+                                ESD_array[sel_s - 1, round((t0 - RE_START_T) / MIN_RUN_STEP),
+                                round((t + MIN_STEP - RE_START_T) / MIN_RUN_STEP):, num_s, num_c] += \
+                                    np.dot(pi_mat[get_target_state(num_s, num_c), :], rate_array) * mu_array[round(t / MIN_STEP), sel_s - 1]
 
         end_calculation = time.time()
         print(f'calculation done for station {sel_s}')

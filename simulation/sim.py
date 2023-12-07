@@ -1,12 +1,16 @@
 import copy
 import time
 import random
+import pickle
 import numpy as np
 
 from simulation.consts import *
 
 random.seed(SEED)
 np.random.seed(SEED)
+
+with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\expectation_calculation\ESD_array.pkl', 'rb') as f:
+    esd_arr = pickle.load(f)
 
 
 class Simulation:
@@ -92,6 +96,9 @@ class Simulation:
         # self.func_var_dict = self.init_func_var_dict()
         # online VFA property
         self.best_val_list = []
+
+        # test esd
+        self.test_esd = 0
 
         # MLP test
         self.nn_var_list = ['time', 'veh_load', 'des_inv']
@@ -1369,6 +1376,13 @@ class Simulation:
             if self.t >= RECORD_WORK_T:
                 self.success_work += sum_success
                 self.success_work_list.append(sum_success)
+                if round((self.t-RE_START_T)/10) < 36:
+                    self.test_esd += \
+                        sum([esd_arr[s-1, round((self.t-RE_START_T)/10), round((self.t+MIN_RUN_STEP-RE_START_T)/10), self.stations[s].num_self, self.stations[s].num_opponent] for s in range(1, 26)])
+                elif round((self.t-RE_START_T)/10) == 36:
+                    self.test_esd += \
+                        sum([esd_arr[s-1, round((self.t-RE_START_T)/10)-1, -1, self.stations[s].num_self, self.stations[s].num_opponent] for s in range(1, 26)])
+
                 if self.t < RE_END_T:
                     self.success_work_till_done += sum_success
                     self.success_work_till_done_list.append(sum_success)

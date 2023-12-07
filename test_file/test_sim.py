@@ -59,10 +59,11 @@ if __name__ == '__main__':
     test = None
     for _ in range(100):
         test = Simulation(**test_case, func_dict=func_dict, MLP_model=model)
-        test.single = True
-        test.policy = 'STR'
+        test.single = False
+        test.policy = None
         test.print_action = False
         test.run()
+        print(f'test_esd: {test.test_esd}')
         form_state_value_pair = False
         # print(test.success_work, test.success_work * ORDER_INCOME_UNIT - test.veh_distance * DISTANCE_COST_UNIT)
         # print(test.best_val_list)
