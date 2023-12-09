@@ -39,7 +39,7 @@ CONST_OPERATION = 10
 ROLLOUT_SIM_TIMES = 32
 
 # STR balance parameter
-GAMMA = 0.3
+GAMMA = 0.2
 
 # travel cost for every minute (single vehicle)
 UNIT_TRAVEL_COST = 1
@@ -70,3 +70,10 @@ DISTANCE_COST_UNIT = 0.25
 ORDER_INCOME_UNIT = 2
 LAMBDA = 0.98  # in RLS algorithm
 SMALL_CONST_IN_INIT = 0.01  # in RLS algorithm
+
+# rolling horizon framework with MINLP
+T_ROLL = 1 * 60  # in minute
+T_PLAN = 2 * 60  # in minute
+T_FORE = 4 * 60  # in minute
+
+ALPHA = 1  # weight of relocation cost in ALNS

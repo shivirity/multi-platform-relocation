@@ -39,28 +39,49 @@ if __name__ == '__main__':
     selected_rep = 5000
 
     # read in MLP model
-    model = joblib.load(f'../offline_VFA/MLP_unit_test/model/nn_state_value_GLA_test.pkl')
+    # model = joblib.load(f'../offline_VFA/MLP_unit_test/model/nn_state_value_GLA_test.pkl')
 
-    if case_test is True:
-        # case test
-        func_dict = {}
-        func_params = pd.read_csv(f'../offline_VFA/params/params_{selected_set}_{selected_case}_{selected_duration}_{selected_rep}.csv', index_col=0)
-        for i in list(func_params.index):
-            func_dict[i] = {val: func_params.loc[i, val] for val in list(func_params.columns)}
-    else:
-        # linear_regression_test
-        with open(f'../offline_VFA/linear_regression_test/data/result_dict_{selected_set}_{selected_case}_{selected_rep}.pkl', 'rb') as f:
-            func_dict = pickle.load(f)
+    # if case_test is True:
+    #     # case test
+    #     func_dict = {}
+    #     func_params = pd.read_csv(f'../offline_VFA/params/params_{selected_set}_{selected_case}_{selected_duration}_{selected_rep}.csv', index_col=0)
+    #     for i in list(func_params.index):
+    #         func_dict[i] = {val: func_params.loc[i, val] for val in list(func_params.columns)}
+    # else:
+    #     # linear_regression_test
+    #     with open(f'../offline_VFA/linear_regression_test/data/result_dict_{selected_set}_{selected_case}_{selected_rep}.pkl', 'rb') as f:
+    #         func_dict = pickle.load(f)
 
-    start = time.process_time()
     test_result, test_result_work, test_distance, test_value, cost_list = [], [], [], [], []
     state_value_pair = []
 
-    test = None
-    for _ in range(100):
-        test = Simulation(**test_case, func_dict=func_dict, MLP_model=model)
-        test.single = False
-        test.policy = None
+    test_num = 10
+
+    test_single = True
+    test_policy = None
+
+    # MINLP model
+    if test_single is True:
+        with open('../expectation_calculation/EI_s_array_single.pkl', 'rb') as f:
+            ei_s_arr = pickle.load(f)
+        with open('../expectation_calculation/EI_c_array_multi.pkl', 'rb') as f:
+            ei_c_arr = pickle.load(f)
+        with open('../expectation_calculation/ESD_array_single.pkl', 'rb') as f:
+            esd_arr = pickle.load(f)
+    else:
+        with open('../expectation_calculation/EI_s_array_multi.pkl', 'rb') as f:
+            ei_s_arr = pickle.load(f)
+        with open('../expectation_calculation/EI_c_array_multi.pkl', 'rb') as f:
+            ei_c_arr = pickle.load(f)
+        with open('../expectation_calculation/ESD_array_multi.pkl', 'rb') as f:
+            esd_arr = pickle.load(f)
+
+    start = time.process_time()
+    for _ in range(test_num):
+        # test = Simulation(**test_case, func_dict=func_dict, MLP_model=model)
+        test = Simulation(**test_case, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr)
+        test.single = test_single
+        test.policy = test_policy
         test.print_action = False
         test.run()
         print(f'test_esd: {test.test_esd}')
@@ -83,7 +104,7 @@ if __name__ == '__main__':
             )
 
         if _ % 10 == 0:
-            print(f'testing process: {_} / 100')
+            print(f'testing process: {_} / {test_num}')
         # test.print_simulation_log()
         # test.print_stage_log()
     end = time.process_time()
