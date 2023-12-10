@@ -58,7 +58,7 @@ if __name__ == '__main__':
     test_num = 10
 
     test_single = True
-    test_policy = None
+    test_policy = 'MINLP'
 
     # MINLP model
     if test_single is True:

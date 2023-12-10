@@ -72,8 +72,8 @@ LAMBDA = 0.98  # in RLS algorithm
 SMALL_CONST_IN_INIT = 0.01  # in RLS algorithm
 
 # rolling horizon framework with MINLP
-T_ROLL = 1 * 60  # in minute
-T_PLAN = 2 * 60  # in minute
-T_FORE = 4 * 60  # in minute
+T_ROLL = 2 * 60  # in minute
+T_PLAN = 4 * 60  # in minute
+T_FORE = 6 * 60  # in minute
 
-ALPHA = 1  # weight of relocation cost in ALNS
+ALPHA = 2.5  # weight of relocation cost in ALNS
