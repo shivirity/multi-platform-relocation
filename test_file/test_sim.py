@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     test_num = 10
 
-    test_single = True
+    test_single = False
     test_policy = 'MINLP'
 
     # MINLP model
@@ -82,9 +82,10 @@ if __name__ == '__main__':
         test = Simulation(**test_case, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr)
         test.single = test_single
         test.policy = test_policy
-        test.print_action = False
+        test.print_action = True
         test.run()
         print(f'test_esd: {test.test_esd}')
+        print(f'val till work done: {test.success_work_till_done}, estimated val: {test.test_esd_till_work_done}')
         form_state_value_pair = False
         # print(test.success_work, test.success_work * ORDER_INCOME_UNIT - test.veh_distance * DISTANCE_COST_UNIT)
         # print(test.best_val_list)

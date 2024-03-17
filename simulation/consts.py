@@ -28,7 +28,7 @@ STAY_TIME = MIN_RUN_STEP
 DEC_LEVELS = [0.2, 0.4, 0.6, 0.8]
 
 # vehicle capacity
-VEH_CAP = 50
+VEH_CAP = 25
 
 # operation time per bike
 OPERATION_TIME = 0.5
@@ -59,6 +59,9 @@ OPPO_ARR_RATE_FIX = 0.8
 # departure rate (bikes/5min)
 DEP_FIX = 1
 
+# route cost
+ROUTE_COST = 2  # cost for single vehicle driving 10 min
+
 # offline VFA training params
 
 POLICY_DURATION = 30  # in minute, the policy changes every POLICY_DURATION minutes
@@ -66,7 +69,7 @@ POLICY_DURATION = 30  # in minute, the policy changes every POLICY_DURATION minu
 SAFETY_INV_LB = 0
 SAFETY_INV_UB = 1
 EPSILON = 0.1  # in epsilon-greedy policy
-DISTANCE_COST_UNIT = 0.25
+DISTANCE_COST_UNIT = ROUTE_COST / 10
 ORDER_INCOME_UNIT = 2
 LAMBDA = 0.98  # in RLS algorithm
 SMALL_CONST_IN_INIT = 0.01  # in RLS algorithm
@@ -76,4 +79,12 @@ T_ROLL = 2 * 60  # in minute
 T_PLAN = 4 * 60  # in minute
 T_FORE = 6 * 60  # in minute
 
-ALPHA = 2.5  # weight of relocation cost in ALNS
+ALPHA = ROUTE_COST  # weight of relocation cost in ALNS
+MINLP_TIME_LIMIT = 120  # time limit for single optimization in ALNS
+
+# in REA algorithm
+DELTA_CAP = 0.4
+L_REA = 0
+U_REA = CAP_S
+BETA_L = 0.7
+BETA_U = 0.3

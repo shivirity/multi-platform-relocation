@@ -138,3 +138,5 @@ offline_VFA/params/
 test_file/test_log/
 
 order_preprocessing/
+
+draw_script.py
