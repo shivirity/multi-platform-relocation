@@ -39,10 +39,10 @@ CONST_OPERATION = 10
 ROLLOUT_SIM_TIMES = 32
 
 # STR balance parameter
-GAMMA = 0.2
+GAMMA = 0.3
 
 # travel cost for every minute (single vehicle)
-UNIT_TRAVEL_COST = 1
+UNIT_TRAVEL_COST = 0.2
 
 # (single-info) GLA lookahead horizon (in minute)
 GLA_HORIZON = 120
@@ -75,16 +75,20 @@ LAMBDA = 0.98  # in RLS algorithm
 SMALL_CONST_IN_INIT = 0.01  # in RLS algorithm
 
 # rolling horizon framework with MINLP
-T_ROLL = 2 * 60  # in minute
-T_PLAN = 4 * 60  # in minute
+T_ROLL = 1 * 60  # in minute
+T_PLAN = 2 * 60  # in minute
 T_FORE = 6 * 60  # in minute
 
 ALPHA = ROUTE_COST  # weight of relocation cost in ALNS
-MINLP_TIME_LIMIT = 120  # time limit for single optimization in ALNS
+MINLP_TIME_LIMIT = 180  # time limit for single optimization in ALNS
 
 # in REA algorithm
 DELTA_CAP = 0.4
 L_REA = 0
 U_REA = CAP_S
 BETA_L = 0.7
+BETA_L_DUAL = 0.5
 BETA_U = 0.3
+BETA_U_DUAL = 0.1
+NUM_INIT_ROUTES = 10
+NUM_DUAL_ROUTES = 10
