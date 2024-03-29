@@ -266,7 +266,7 @@ class ESDComputer:
                     ]
                 cost = profit - cost_sum  # the cost represents the delta value
 
-        else:  # can stay at the stations todo: need to adjust then t_left is not zero
+        else:  # can stay at the stations todo: need to adjust then t_left is not zero, 未作可以在depot停留的修改
             cap_van, cap_station = VEH_CAP, CAP_S
             route = list(r)
             num_level = round(cap_van + 1)  # number of levels of load on van
