@@ -263,45 +263,50 @@ def get_dp_reduced_cost(cap_v: int, cap_s: int, num_stations: int, init_loc: int
                                         if next_s == cur_s:
                                             stay_t = 1
                                             if t + stay_t <= t_repo:
-                                                calcu_arr[t + stay_t][next_s - 1] = True
-                                                if reward_arr[t + stay_t][next_s][inv] is None:
-                                                    new_reward = cur_reward
-                                                    reward_arr[t + stay_t][next_s][inv] = [(new_reward, cur_set)]
-                                                    trace_arr[t + stay_t][next_s][inv] = [
-                                                        (t, cur_s, inv, label_id)]
-                                                else:  # dominate rules applied
-                                                    new_reward = cur_reward
-                                                    tmp_label = [new_reward, cur_set]
-                                                    dom_idx = []
-                                                    for ne_label_id in range(
-                                                            len(reward_arr[t + stay_t][next_s][inv])):
-                                                        ne_label = reward_arr[t + stay_t][next_s][inv][ne_label_id]
-                                                        if is_dominated(label1=tmp_label, label2=ne_label):
-                                                            dom_idx.append(ne_label_id)
-                                                        elif is_dominated(label1=ne_label, label2=tmp_label):
-                                                            assert not dom_idx  # dom_idx is empty
-                                                            break
-                                                    else:
-                                                        if len(dom_idx) == 0:  # no domination
-                                                            reward_arr[t + stay_t][next_s][inv].append(tmp_label)
-                                                            trace_arr[t + stay_t][next_s][inv].append(
-                                                                (t, cur_s, inv, label_id))
+                                                if t + stay_t < t_repo - 1 or inv_dict[inv] == 0:  # 最后一站放空，不改变库存所以remain inv
+                                                    calcu_arr[t + stay_t][next_s - 1] = True
+                                                    if reward_arr[t + stay_t][next_s][inv] is None:
+                                                        new_reward = cur_reward
+                                                        reward_arr[t + stay_t][next_s][inv] = [(new_reward, cur_set)]
+                                                        trace_arr[t + stay_t][next_s][inv] = [
+                                                            (t, cur_s, inv, label_id)]
+                                                    else:  # dominate rules applied
+                                                        new_reward = cur_reward
+                                                        tmp_label = [new_reward, cur_set]
+                                                        dom_idx = []
+                                                        for ne_label_id in range(
+                                                                len(reward_arr[t + stay_t][next_s][inv])):
+                                                            ne_label = reward_arr[t + stay_t][next_s][inv][ne_label_id]
+                                                            if is_dominated(label1=tmp_label, label2=ne_label):
+                                                                dom_idx.append(ne_label_id)
+                                                            elif is_dominated(label1=ne_label, label2=tmp_label):
+                                                                assert not dom_idx  # dom_idx is empty
+                                                                break
                                                         else:
-                                                            dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
-                                                            # first delete
-                                                            for idx in dom_idx:
-                                                                reward_arr[t + stay_t][next_s][inv].pop(idx)
-                                                                trace_arr[t + stay_t][next_s][inv].pop(idx)
-                                                            # then add
-                                                            reward_arr[t + stay_t][next_s][inv].append(tmp_label)
-                                                            trace_arr[t + stay_t][next_s][inv].append(
-                                                                (t, cur_s, inv, label_id))
+                                                            if len(dom_idx) == 0:  # no domination
+                                                                reward_arr[t + stay_t][next_s][inv].append(tmp_label)
+                                                                trace_arr[t + stay_t][next_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                            else:
+                                                                dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                # first delete
+                                                                for idx in dom_idx:
+                                                                    reward_arr[t + stay_t][next_s][inv].pop(idx)
+                                                                    trace_arr[t + stay_t][next_s][inv].pop(idx)
+                                                                # then add
+                                                                reward_arr[t + stay_t][next_s][inv].append(tmp_label)
+                                                                trace_arr[t + stay_t][next_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
                                         elif next_s in cur_set:
                                             pass
                                         else:
                                             arr_t = round(c_mat[cur_s, next_s])
                                             if t + arr_t <= t_repo:
-                                                for next_inv in range(inv_num):
+                                                if t + arr_t < t_repo - 1:
+                                                    can_do_inv = inv_num
+                                                else:
+                                                    can_do_inv = 1
+                                                for next_inv in range(can_do_inv):
                                                     # if t == 3 and cur_s == 3 and next_s == 12 and next_inv == 5:
                                                     #     logging.info('debug')
                                                     ins = inv_dict[inv] - inv_dict[next_inv]
@@ -436,20 +441,20 @@ def get_dp_reduced_cost_numba(cap_v: int, cap_s: int, num_stations: int, init_lo
     # inv_dict = {0: 0, 1: 5, 2: 20, 3: 25}  # level_id: inv_level_on_veh
     # inv_id_dict = {25: 3, 20: 2, 5: 1, 0: 0}  # inv_level_on_veh: inv_id
 
-    # inv_dict_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
-    # inv_id_dict_arr = np.array([0, 0, 0, 0, 0,
-    #                             1, 1, 1, 1, 1,
-    #                             2, 2, 2, 2, 2,
-    #                             3, 3, 3, 3, 3,
-    #                             4, 4, 4, 4, 4,
-    #                             5, 5, 5, 5, 5], dtype=np.int8)
-    inv_dict_arr = np.array([0, 5, 20, 25], dtype=np.int8)
+    inv_dict_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
     inv_id_dict_arr = np.array([0, 0, 0, 0, 0,
                                 1, 1, 1, 1, 1,
                                 2, 2, 2, 2, 2,
                                 3, 3, 3, 3, 3,
-                                2, 2, 2, 2, 2,
-                                3, 3, 3, 3, 3], dtype=np.int8)
+                                4, 4, 4, 4, 4,
+                                5, 5, 5, 5, 5], dtype=np.int8)
+    # inv_dict_arr = np.array([0, 5, 20, 25], dtype=np.int8)
+    # inv_id_dict_arr = np.array([0, 0, 0, 0, 0,
+    #                             1, 1, 1, 1, 1,
+    #                             2, 2, 2, 2, 2,
+    #                             3, 3, 3, 3, 3,
+    #                             2, 2, 2, 2, 2,
+    #                             3, 3, 3, 3, 3], dtype=np.int8)
 
     # inv_num = len(inv_dict)
     inv_num = inv_dict_arr.shape[0]
@@ -479,8 +484,7 @@ def get_dp_reduced_cost_numba(cap_v: int, cap_s: int, num_stations: int, init_lo
     # calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
     max_label_num = 1200
     label_num_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num), dtype=np.int16)
-    reward_val_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num),
-                              dtype=np.float64)  # todo: can be float32
+    reward_val_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.float64)
     reward_set_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num, num_stations + 1), dtype=np.bool_)
     trace_t_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
     trace_s_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
@@ -811,93 +815,100 @@ def get_dp_reduced_cost_numba(cap_v: int, cap_s: int, num_stations: int, init_lo
                                         if next_s == cur_s:
                                             stay_t = 1
                                             if t + stay_t <= t_repo:
-                                                calcu_arr[t + stay_t, next_s - 1] = True
 
-                                                if label_num_arr[t + stay_t, next_s, inv] == 0:
-                                                    new_reward = cur_reward
-                                                    label_num_arr[t + stay_t, next_s, inv] = 1
-                                                    reward_val_arr[t + stay_t, next_s, inv, 0] = new_reward
-                                                    reward_set_arr[t + stay_t, next_s, inv, 0, :] = cur_set
-                                                    trace_t_arr[t + stay_t, next_s, inv, 0] = t
-                                                    trace_s_arr[t + stay_t, next_s, inv, 0] = cur_s
-                                                    trace_inv_arr[t + stay_t, next_s, inv, 0] = inv
-                                                    trace_lid_arr[t + stay_t, next_s, inv, 0] = label_id
+                                                if t + stay_t < t_repo - 1 or inv_dict_arr[inv] == 0:
 
-                                                else:  # dominate rules applied
-                                                    tmp_val = cur_reward
-                                                    tmp_set = reward_set_arr[t, cur_s, inv, label_id, :].copy()
-                                                    dom_idx = List()
-                                                    for ne_label_id in range(label_num_arr[t + stay_t, next_s, inv]):
-                                                        ne_val = reward_val_arr[t + stay_t, next_s, inv, ne_label_id]
-                                                        ne_set = reward_set_arr[t + stay_t, next_s, inv, ne_label_id, :].copy()
+                                                    calcu_arr[t + stay_t, next_s - 1] = True
 
-                                                        if tmp_val >= ne_val and not np.any(
-                                                                tmp_set > ne_set):  # set1是set2的子集
-                                                            dom_idx.append(ne_label_id)
-                                                        elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
-                                                            assert len(dom_idx) == 0  # dom_idx is empty
-                                                            break
-                                                    else:
-                                                        if len(dom_idx) == 0:  # no domination
-                                                            cur_label_num = label_num_arr[t + stay_t, next_s, inv]
-                                                            label_num_arr[t + stay_t, next_s, inv] += 1
-                                                            reward_val_arr[t + stay_t, next_s, inv, cur_label_num] = tmp_val
-                                                            reward_set_arr[t + stay_t, next_s, inv, cur_label_num, :] = tmp_set
-                                                            trace_t_arr[t + stay_t, next_s, inv, cur_label_num] = t
-                                                            trace_s_arr[t + stay_t, next_s, inv, cur_label_num] = cur_s
-                                                            trace_inv_arr[t + stay_t, next_s, inv, cur_label_num] = inv
-                                                            trace_lid_arr[t + stay_t, next_s, inv, cur_label_num] = label_id
-                                                        elif len(dom_idx) == 1:
-                                                            change_idx = dom_idx[0]
-                                                            reward_val_arr[t + stay_t, next_s, inv, change_idx] = tmp_val
-                                                            reward_set_arr[t + stay_t, next_s, inv, change_idx, :] = tmp_set
-                                                            trace_t_arr[t + stay_t, next_s, inv, change_idx] = t
-                                                            trace_s_arr[t + stay_t, next_s, inv, change_idx] = cur_s
-                                                            trace_inv_arr[t + stay_t, next_s, inv, change_idx] = inv
-                                                            trace_lid_arr[t + stay_t, next_s, inv, change_idx] = label_id
+                                                    if label_num_arr[t + stay_t, next_s, inv] == 0:
+                                                        new_reward = cur_reward
+                                                        label_num_arr[t + stay_t, next_s, inv] = 1
+                                                        reward_val_arr[t + stay_t, next_s, inv, 0] = new_reward
+                                                        reward_set_arr[t + stay_t, next_s, inv, 0, :] = cur_set
+                                                        trace_t_arr[t + stay_t, next_s, inv, 0] = t
+                                                        trace_s_arr[t + stay_t, next_s, inv, 0] = cur_s
+                                                        trace_inv_arr[t + stay_t, next_s, inv, 0] = inv
+                                                        trace_lid_arr[t + stay_t, next_s, inv, 0] = label_id
+
+                                                    else:  # dominate rules applied
+                                                        tmp_val = cur_reward
+                                                        tmp_set = reward_set_arr[t, cur_s, inv, label_id, :].copy()
+                                                        dom_idx = List()
+                                                        for ne_label_id in range(label_num_arr[t + stay_t, next_s, inv]):
+                                                            ne_val = reward_val_arr[t + stay_t, next_s, inv, ne_label_id]
+                                                            ne_set = reward_set_arr[t + stay_t, next_s, inv, ne_label_id, :].copy()
+
+                                                            if tmp_val >= ne_val and not np.any(
+                                                                    tmp_set > ne_set):  # set1是set2的子集
+                                                                dom_idx.append(ne_label_id)
+                                                            elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
+                                                                assert len(dom_idx) == 0  # dom_idx is empty
+                                                                break
                                                         else:
-                                                            idx_arr = np.empty(len(dom_idx), dtype=dom_idx._dtype)
-                                                            for i, v in enumerate(dom_idx):
-                                                                idx_arr[i] = v
-                                                            # idx_arr = np.array(dom_idx)
-                                                            idx_arr.sort()
-                                                            idx_arr = idx_arr[::-1]
-                                                            # first delete
-                                                            for del_idx in idx_arr:
-                                                                if del_idx == label_num_arr[t + stay_t, next_s, inv] - 1:
-                                                                    label_num_arr[t + stay_t, next_s, inv] -= 1
-                                                                else:
-                                                                    # exchange del_idx and label_num-1
-                                                                    total_num = label_num_arr[t + stay_t, next_s, inv]
-                                                                    reward_val_arr[t + stay_t, next_s, inv, del_idx] = \
-                                                                    reward_val_arr[t + stay_t, next_s, inv, total_num - 1]
-                                                                    reward_set_arr[t + stay_t, next_s, inv, del_idx, :] \
-                                                                        = reward_set_arr[t + stay_t, next_s, inv, total_num - 1, :]
-                                                                    trace_t_arr[t + stay_t, next_s, inv, del_idx] = \
-                                                                    trace_t_arr[t + stay_t, next_s, inv, total_num - 1]
-                                                                    trace_s_arr[t + stay_t, next_s, inv, del_idx] = \
-                                                                    trace_s_arr[t + stay_t, next_s, inv, total_num - 1]
-                                                                    trace_inv_arr[t + stay_t, next_s, inv, del_idx] = \
-                                                                    trace_inv_arr[t + stay_t, next_s, inv, total_num - 1]
-                                                                    trace_lid_arr[t + stay_t, next_s, inv, del_idx] = \
-                                                                    trace_lid_arr[t + stay_t, next_s, inv, total_num - 1]
-                                                                    label_num_arr[t + stay_t, next_s, inv] -= 1
-                                                            # then add
-                                                            cur_label_num = label_num_arr[t + stay_t, next_s, inv]
-                                                            label_num_arr[t + stay_t, next_s, inv] += 1
-                                                            reward_val_arr[t + stay_t, next_s, inv, cur_label_num] = tmp_val
-                                                            reward_set_arr[t + stay_t, next_s, inv, cur_label_num, :] = tmp_set
-                                                            trace_t_arr[t + stay_t, next_s, inv, cur_label_num] = t
-                                                            trace_s_arr[t + stay_t, next_s, inv, cur_label_num] = cur_s
-                                                            trace_inv_arr[t + stay_t, next_s, inv, cur_label_num] = inv
-                                                            trace_lid_arr[t + stay_t, next_s, inv, cur_label_num] = label_id
+                                                            if len(dom_idx) == 0:  # no domination
+                                                                cur_label_num = label_num_arr[t + stay_t, next_s, inv]
+                                                                label_num_arr[t + stay_t, next_s, inv] += 1
+                                                                reward_val_arr[t + stay_t, next_s, inv, cur_label_num] = tmp_val
+                                                                reward_set_arr[t + stay_t, next_s, inv, cur_label_num, :] = tmp_set
+                                                                trace_t_arr[t + stay_t, next_s, inv, cur_label_num] = t
+                                                                trace_s_arr[t + stay_t, next_s, inv, cur_label_num] = cur_s
+                                                                trace_inv_arr[t + stay_t, next_s, inv, cur_label_num] = inv
+                                                                trace_lid_arr[t + stay_t, next_s, inv, cur_label_num] = label_id
+                                                            elif len(dom_idx) == 1:
+                                                                change_idx = dom_idx[0]
+                                                                reward_val_arr[t + stay_t, next_s, inv, change_idx] = tmp_val
+                                                                reward_set_arr[t + stay_t, next_s, inv, change_idx, :] = tmp_set
+                                                                trace_t_arr[t + stay_t, next_s, inv, change_idx] = t
+                                                                trace_s_arr[t + stay_t, next_s, inv, change_idx] = cur_s
+                                                                trace_inv_arr[t + stay_t, next_s, inv, change_idx] = inv
+                                                                trace_lid_arr[t + stay_t, next_s, inv, change_idx] = label_id
+                                                            else:
+                                                                idx_arr = np.empty(len(dom_idx), dtype=dom_idx._dtype)
+                                                                for i, v in enumerate(dom_idx):
+                                                                    idx_arr[i] = v
+                                                                # idx_arr = np.array(dom_idx)
+                                                                idx_arr.sort()
+                                                                idx_arr = idx_arr[::-1]
+                                                                # first delete
+                                                                for del_idx in idx_arr:
+                                                                    if del_idx == label_num_arr[t + stay_t, next_s, inv] - 1:
+                                                                        label_num_arr[t + stay_t, next_s, inv] -= 1
+                                                                    else:
+                                                                        # exchange del_idx and label_num-1
+                                                                        total_num = label_num_arr[t + stay_t, next_s, inv]
+                                                                        reward_val_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                        reward_val_arr[t + stay_t, next_s, inv, total_num - 1]
+                                                                        reward_set_arr[t + stay_t, next_s, inv, del_idx, :] \
+                                                                            = reward_set_arr[t + stay_t, next_s, inv, total_num - 1, :]
+                                                                        trace_t_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                        trace_t_arr[t + stay_t, next_s, inv, total_num - 1]
+                                                                        trace_s_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                        trace_s_arr[t + stay_t, next_s, inv, total_num - 1]
+                                                                        trace_inv_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                        trace_inv_arr[t + stay_t, next_s, inv, total_num - 1]
+                                                                        trace_lid_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                        trace_lid_arr[t + stay_t, next_s, inv, total_num - 1]
+                                                                        label_num_arr[t + stay_t, next_s, inv] -= 1
+                                                                # then add
+                                                                cur_label_num = label_num_arr[t + stay_t, next_s, inv]
+                                                                label_num_arr[t + stay_t, next_s, inv] += 1
+                                                                reward_val_arr[t + stay_t, next_s, inv, cur_label_num] = tmp_val
+                                                                reward_set_arr[t + stay_t, next_s, inv, cur_label_num, :] = tmp_set
+                                                                trace_t_arr[t + stay_t, next_s, inv, cur_label_num] = t
+                                                                trace_s_arr[t + stay_t, next_s, inv, cur_label_num] = cur_s
+                                                                trace_inv_arr[t + stay_t, next_s, inv, cur_label_num] = inv
+                                                                trace_lid_arr[t + stay_t, next_s, inv, cur_label_num] = label_id
                                         elif cur_set[next_s]:
                                             pass
                                         else:
                                             # assert cur_set[next_s] is False, f'{cur_set[next_s]}'
                                             arr_t = round(c_mat[cur_s, next_s])
                                             if t + arr_t <= t_repo:
-                                                for next_inv in range(inv_num):
+                                                if t + arr_t < t_repo - 1:
+                                                    can_do_inv = inv_num
+                                                else:
+                                                    can_do_inv = 1
+                                                for next_inv in range(can_do_inv):
                                                     # if t == 3 and t + arr_t == 5 and next_s == 5 and next_inv == 5:
                                                     #     logging.info('debug')
                                                     ins = inv_dict_arr[inv] - inv_dict_arr[next_inv]
@@ -1622,14 +1633,34 @@ def get_DP_routes(num_of_van: int, van_location: list, van_dis_left: list, van_l
 
     # generate initial routes
     st = time.process_time()
-    # init_route, init_profit = get_dp_reduced_cost(
-    #     cap_v=c_v,
-    #     cap_s=c_s,
+    init_route, init_profit = get_dp_reduced_cost(
+        cap_v=c_v,
+        cap_s=c_s,
+        num_stations=25,
+        init_loc=van_location[0],
+        init_load=van_load[0],
+        x_s_arr=x_s_arr,
+        x_c_arr=x_c_arr,
+        ei_s_arr=ei_s_arr,
+        ei_c_arr=ei_c_arr,
+        esd_arr=esd_arr,
+        c_mat=c_mat,
+        cur_t=cur_t,
+        t_p=t_p,
+        t_f=t_f,
+        t_roll=t_roll,
+        alpha=alpha,
+        dual_van_vec=[0],
+        dual_station_vec=[0 for _ in range(25)],
+    )
+    # init_route = get_dp_reduced_cost_numba(
+    #     cap_v=round(c_v),
+    #     cap_s=round(c_s),
     #     num_stations=25,
-    #     init_loc=van_location[0],
-    #     init_load=van_load[0],
-    #     x_s_arr=x_s_arr,
-    #     x_c_arr=x_c_arr,
+    #     init_loc=round(van_location[0]),
+    #     init_load=round(van_load[0]),
+    #     x_s_arr=np.array(x_s_arr, dtype=np.int32),
+    #     x_c_arr=np.array(x_c_arr, dtype=np.int32),
     #     ei_s_arr=ei_s_arr,
     #     ei_c_arr=ei_c_arr,
     #     esd_arr=esd_arr,
@@ -1638,28 +1669,9 @@ def get_DP_routes(num_of_van: int, van_location: list, van_dis_left: list, van_l
     #     t_p=t_p,
     #     t_f=t_f,
     #     alpha=alpha,
-    #     dual_van_vec=[0],
-    #     dual_station_vec=[0 for _ in range(25)],
+    #     dual_van_vec=np.array([0], dtype=np.int32),
+    #     dual_station_vec=np.array([0 for _ in range(25)], dtype=np.int32),
     # )
-    init_route = get_dp_reduced_cost_numba(
-        cap_v=round(c_v),
-        cap_s=round(c_s),
-        num_stations=25,
-        init_loc=round(van_location[0]),
-        init_load=round(van_load[0]),
-        x_s_arr=np.array(x_s_arr, dtype=np.int32),
-        x_c_arr=np.array(x_c_arr, dtype=np.int32),
-        ei_s_arr=ei_s_arr,
-        ei_c_arr=ei_c_arr,
-        esd_arr=esd_arr,
-        c_mat=c_mat,
-        cur_t=cur_t,
-        t_p=t_p,
-        t_f=t_f,
-        alpha=alpha,
-        dual_van_vec=np.array([0], dtype=np.int32),
-        dual_station_vec=np.array([0 for _ in range(25)], dtype=np.int32),
-    )
     t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
     max_reward, loc_list, inv_list = esd_computer.compute_route(r=init_route, t_left=van_dis_left[0],
                                                                 init_l=van_load[0], x_s_arr=x_s_arr,
