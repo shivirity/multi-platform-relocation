@@ -893,90 +893,69 @@ class Simulation:
                     route_dec = 0
 
         elif self.policy == 'GLA':  # 2023 TS baseline
-            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
-            if cur_station:  # at station
-                cur_inv = self.stations[cur_station].num_self
-                # inv decision
-                dep = sum(
-                    self.mu_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
-                    cur_station - 1])
-                arr = sum(
-                    self.lambda_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
-                    cur_station - 1])
-                net_demand = int(dep - arr) + 1 if dep > arr else int(dep - arr)
-                # print(net_demand, cur_inv, (dep, arr))
-                if net_demand >= cur_inv:
-                    inv_dec = min(net_demand, self.stations[cur_station].cap)
-                    load_after_ins = cur_load - min(inv_dec - cur_inv, cur_load)
+            dec_list = []
+            former_route_dec = []
+            next_visit_stations = [veh_info[1] for veh_info in self.veh_info if veh_info[2] is not None and veh_info[2] > 0]
+            for veh in range(self.num_of_veh):
+                if self.veh_info[veh][2] == 0 or self.veh_info[veh][2] is None:
+                    cur_station, cur_load = self.veh_info[veh][0], self.veh_info[veh][3]
+                    if cur_station:
+                        cur_inv = self.stations[cur_station].num_self
+                        # inv decision
+                        dep = sum(
+                            self.mu_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
+                            cur_station - 1])
+                        arr = sum(
+                            self.lambda_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
+                            cur_station - 1])
+                        net_demand = int(dep - arr) + 1 if dep > arr else int(dep - arr)
+                        if net_demand >= cur_inv:
+                            inv_dec = min(net_demand, self.stations[cur_station].cap)
+                            load_after_ins = cur_load - min(inv_dec - cur_inv, cur_load)
+                        else:
+                            inv_dec = max(net_demand, 0)
+                            load_after_ins = cur_load + min(cur_inv - inv_dec, VEH_CAP - cur_load)
+                        # route decision
+                        rate = load_after_ins / VEH_CAP
+                        stations = [i for i in self.stations.keys() if i != cur_station]
+                        # cannot go to same stations
+                        stations = [val for val in stations if
+                                    (val not in former_route_dec) and (val not in next_visit_stations)]
+                        random.shuffle(stations)
+                        if rate <= GLA_delta:  # load
+                            num_self_list = [self.stations[station].num_self for station in stations]
+                            route_dec = stations[num_self_list.index(max(num_self_list))]
+                            former_route_dec.append(route_dec)
+                        else:  # unload
+                            net_demand_list = [
+                                round(
+                                    sum(
+                                        self.mu_s_array[
+                                        int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
+                                        station - 1]
+                                    ) -
+                                    sum(
+                                        self.lambda_s_array[
+                                        int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
+                                        station - 1]
+                                    )
+                                )
+                                for station in stations
+                            ]
+                            route_dec = stations[net_demand_list.index(max(net_demand_list))]
+                            former_route_dec.append(route_dec)
+
+                    else:  # at depot
+                        inv_dec = -1
+                        stations = [i for i in self.stations.keys() if i != cur_station]
+                        stations = [val for val in stations if val not in former_route_dec]
+                        random.shuffle(stations)
+                        num_self_list = [self.stations[station].num_self for station in stations]
+                        route_dec = stations[num_self_list.index(max(num_self_list))]
+                        former_route_dec.append(route_dec)
+                    dec_list.append({'inv': inv_dec, 'route': route_dec})
                 else:
-                    inv_dec = max(net_demand, 0)
-                    load_after_ins = cur_load + min(cur_inv - inv_dec, VEH_CAP - cur_load)
-                # route decision
-                rate = load_after_ins / VEH_CAP
-                stations = [i for i in self.stations.keys() if i != cur_station]
-                random.shuffle(stations)
-                if rate <= GLA_delta:  # load
-                    num_self_list = [self.stations[station].num_self for station in stations]
-                    route_dec = stations[num_self_list.index(max(num_self_list))]
-                else:
-                    net_demand_list = [
-                        round(
-                            sum(
-                                self.mu_s_array[int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
-                                station - 1]
-                            ) -
-                            sum(
-                                self.lambda_s_array[
-                                int(self.t / MIN_STEP):int(self.t / MIN_STEP + GLA_HORIZON / MIN_STEP),
-                                station - 1]
-                            )
-                        )
-                        for station in stations
-                    ]
-                    route_dec = stations[net_demand_list.index(max(net_demand_list))]
-
-                # estimate current cost
-                if inv_dec > self.stations[cur_station].num_self:
-                    ins = min(inv_dec - self.stations[cur_station].num_self, cur_load)
-                elif inv_dec < self.stations[cur_station].num_self:
-                    ins = max(inv_dec - self.stations[cur_station].num_self, cur_load - VEH_CAP)
-                else:
-                    ins = 0
-                num_self_list = [val.num_self for val in self.stations.values()]
-                num_oppo_list = [val.num_opponent for val in self.stations.values()]
-                num_self_list[cur_station - 1] += ins
-                on_route_t = 5 * (int((self.dist[
-                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                cur_step_t = CONST_OPERATION + on_route_t if cur_station != route_dec else MIN_RUN_STEP
-                # cost at current step
-                order_exp = self.get_estimated_order(
-                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
-                )
-
-                post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
-                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * on_route_t)
-                self.basis_func_property.append(dict(post_dec_var_dict))
-
-
-            else:  # at depot
-                inv_dec = -1
-                stations = [i for i in self.stations.keys() if i != cur_station]
-                random.shuffle(stations)
-                num_self_list = [self.stations[station].num_self for station in stations]
-                route_dec = stations[num_self_list.index(max(num_self_list))]
-
-                num_self_list = [val.num_self for val in self.stations.values()]
-                num_oppo_list = [val.num_opponent for val in self.stations.values()]
-                cur_step_t = 5 * (int((self.dist[
-                                           cur_station, route_dec] - 0.2) / 5) + 1) if cur_station != route_dec else 0
-                # cost at current step
-                order_exp = self.get_estimated_order(
-                    step_t=cur_step_t, num_self=num_self_list, num_oppo=num_oppo_list, start_t=self.t
-                )
-
-                post_dec_var_dict = self.get_post_decision_var_dict(inv_dec=inv_dec, route_dec=route_dec)
-                self.cost_list.append(ORDER_INCOME_UNIT * order_exp - UNIT_TRAVEL_COST * cur_step_t)
-                self.basis_func_property.append(dict(post_dec_var_dict))
+                    dec_list.append({'inv': None, 'route': None})
 
         elif self.policy == 'MINLP':
 

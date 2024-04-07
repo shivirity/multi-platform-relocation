@@ -94,4 +94,4 @@ NUM_INIT_ROUTES = 10
 NUM_DUAL_ROUTES = 10
 
 # multi-vehicle mode
-NUM_VEHICLES = 2
+NUM_VEHICLES = 1

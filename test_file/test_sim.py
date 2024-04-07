@@ -56,8 +56,8 @@ if __name__ == '__main__':
 
     test_num = 10
 
-    test_single = False
-    test_policy = 'random'
+    test_single = True
+    test_policy = 'GLA'
 
     # MINLP model
     if test_single is True:
@@ -94,7 +94,7 @@ if __name__ == '__main__':
         test_value.append(test.success_work * ORDER_INCOME_UNIT - sum(test.veh_distance) * DISTANCE_COST_UNIT)
         # cost_list.append(sum(test.cost_list))
 
-        if _ % 10 == 0:
+        if _ % 1 == 0:
             print(f'testing process: {_} / {test_num}')
         # test.print_simulation_log()
         # test.print_stage_log()
