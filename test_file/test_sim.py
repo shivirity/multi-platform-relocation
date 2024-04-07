@@ -52,13 +52,12 @@ if __name__ == '__main__':
     #     with open(f'../offline_VFA/linear_regression_test/data/result_dict_{selected_set}_{selected_case}_{selected_rep}.pkl', 'rb') as f:
     #         func_dict = pickle.load(f)
 
-    test_result, test_result_work, test_distance, test_value, cost_list = [], [], [], [], []
-    state_value_pair = []
+    test_result, test_result_work, test_distance, test_value = [], [], [], []
 
     test_num = 10
 
     test_single = False
-    test_policy = 'DP_test'
+    test_policy = 'random'
 
     # MINLP model
     if test_single is True:
@@ -84,25 +83,16 @@ if __name__ == '__main__':
         test.policy = test_policy
         test.print_action = True
         test.run()
-        print(f'test_esd: {test.test_esd}')
-        print(f'val till work done: {test.success_work_till_done}, estimated val: {test.test_esd_till_work_done}')
+        # print(f'test_esd: {test.test_esd}')
+        # print(f'val till work done: {test.success_work_till_done}, estimated val: {test.test_esd_till_work_done}')
         form_state_value_pair = False
         # print(test.success_work, test.success_work * ORDER_INCOME_UNIT - test.veh_distance * DISTANCE_COST_UNIT)
         # print(test.best_val_list)
         test_result.append(test.success)
         test_result_work.append(test.success_work)
-        test_distance.append(test.veh_distance)
-        test_value.append(test.success_work * ORDER_INCOME_UNIT - test.veh_distance * DISTANCE_COST_UNIT)
-        cost_list.append(sum(test.cost_list))
-
-        if form_state_value_pair:
-            state_value_pair.extend(
-                get_state_value_pair(
-                    var_list=test.nn_var_list,
-                    cost_list=test.cost_list,
-                    property_list=test.basis_func_property,
-                    cost_after_work=test.cost_after_work)
-            )
+        test_distance.append(sum(test.veh_distance))
+        test_value.append(test.success_work * ORDER_INCOME_UNIT - sum(test.veh_distance) * DISTANCE_COST_UNIT)
+        # cost_list.append(sum(test.cost_list))
 
         if _ % 10 == 0:
             print(f'testing process: {_} / {test_num}')

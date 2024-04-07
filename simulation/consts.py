@@ -92,3 +92,6 @@ BETA_U = 0.3
 BETA_U_DUAL = 0.1
 NUM_INIT_ROUTES = 10
 NUM_DUAL_ROUTES = 10
+
+# multi-vehicle mode
+NUM_VEHICLES = 2
