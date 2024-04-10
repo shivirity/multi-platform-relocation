@@ -4,7 +4,7 @@ import numpy as np
 from simulation.system import Station
 from order_preprocessing.sim.init import get_init_station
 
-from simulation.consts import SELF_ARR_RATE_FIX, OPPO_ARR_RATE_FIX, DEP_FIX
+from simulation.consts import MORN_ARR_RATE_FIX, MORN_DEP_RATE_FIX, AFT_ARR_RATE_FIX, AFT_DEP_RATE_FIX, OVERALL_RATE
 
 # load data
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\veh_distance_matrix.pkl',
@@ -12,10 +12,10 @@ with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\
     dist_array = pickle.load(file)
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\order_preprocessing\arr_s_array.pkl',
           'rb') as file:
-    arr_s_array = SELF_ARR_RATE_FIX * pickle.load(file)
+    arr_s_array = pickle.load(file)
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\order_preprocessing\arr_c_array.pkl',
           'rb') as file:
-    arr_c_array = OPPO_ARR_RATE_FIX * pickle.load(file)
+    arr_c_array = pickle.load(file)
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\order_preprocessing\dep_s_array.pkl',
           'rb') as file:
     dep_s_array = pickle.load(file)
@@ -114,7 +114,44 @@ test_case_25 = {
     'lambda_s_array': get_part_lambda_s_array(sel_stations=station_list_25, stations=station_list),
     'lambda_c_array': get_part_lambda_c_array(sel_stations=station_list_25, stations=station_list),
 }
-test_case_25['lambda_s_array'][:144, :] = test_case_25['lambda_s_array'][:144, :] / SELF_ARR_RATE_FIX
-test_case_25['lambda_c_array'][:144, :] = test_case_25['lambda_c_array'][:144, :] / OPPO_ARR_RATE_FIX
-test_case_25['mu_s_array'][144:, :] = test_case_25['mu_s_array'][144:, :] * DEP_FIX
-test_case_25['mu_c_array'][144:, :] = test_case_25['mu_c_array'][144:, :] * DEP_FIX
+test_case_25['lambda_s_array'][:144, :] = test_case_25['lambda_s_array'][:144, :] * MORN_ARR_RATE_FIX * OVERALL_RATE
+test_case_25['lambda_c_array'][:144, :] = test_case_25['lambda_c_array'][:144, :] * MORN_ARR_RATE_FIX * OVERALL_RATE
+test_case_25['mu_s_array'][:144, :] = test_case_25['mu_s_array'][:144, :] * MORN_DEP_RATE_FIX * OVERALL_RATE
+test_case_25['mu_c_array'][:144, :] = test_case_25['mu_c_array'][:144, :] * MORN_DEP_RATE_FIX * OVERALL_RATE
+
+test_case_25['lambda_s_array'][144:, :] = test_case_25['lambda_s_array'][144:, :] * AFT_ARR_RATE_FIX * OVERALL_RATE
+test_case_25['lambda_c_array'][144:, :] = test_case_25['lambda_c_array'][144:, :] * AFT_ARR_RATE_FIX * OVERALL_RATE
+test_case_25['mu_s_array'][144:, :] = test_case_25['mu_s_array'][144:, :] * AFT_DEP_RATE_FIX * OVERALL_RATE
+test_case_25['mu_c_array'][144:, :] = test_case_25['mu_c_array'][144:, :] * AFT_DEP_RATE_FIX * OVERALL_RATE
+
+# 14 -> 168, 21 -> 252
+for i in [1, 11, 18, 19]:  # plus dep
+    test_case_25['mu_s_array'][168:, i-1] = test_case_25['mu_s_array'][168:, i-1] * 1.4
+    test_case_25['mu_c_array'][168:, i-1] = test_case_25['mu_c_array'][168:, i-1] * 1.4
+for i in [4]:
+    test_case_25['mu_s_array'][168:, i-1] = test_case_25['mu_s_array'][168:, i-1] * 1.2
+    test_case_25['mu_c_array'][168:, i-1] = test_case_25['mu_c_array'][168:, i-1] * 1.2
+for i in [7, 13, 14, 16, 25]:  # plus dep - balanced
+    test_case_25['mu_s_array'][168:, i-1] = test_case_25['mu_s_array'][168:, i-1] * 1.7
+    test_case_25['mu_c_array'][168:, i-1] = test_case_25['mu_c_array'][168:, i-1] * 1.7
+for i in [5, 8, 10, 12, 24]:  # plus arr
+    test_case_25['lambda_s_array'][168:, i-1] = test_case_25['lambda_s_array'][168:, i-1] * 1.4
+    test_case_25['lambda_c_array'][168:, i-1] = test_case_25['lambda_c_array'][168:, i-1] * 1.4
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    x_list = [i/2 for i in range(48)]
+    for i in range(25):
+        plt.figure(figsize=(8, 5), dpi=150)
+        lambda_s_list = list(test_case_25['lambda_s_array'][:, i])
+        mu_s_list = list(test_case_25['mu_s_array'][:, i])
+        # 每两项求和
+        lambda_s_list = [sum(lambda_s_list[i:i+6]) for i in range(0, len(lambda_s_list), 6)]
+        mu_s_list = [sum(mu_s_list[i:i+6]) for i in range(0, len(mu_s_list), 6)]
+        plt.plot(x_list, lambda_s_list, label='lambda_s')
+        # plt.plot(test_case_25['lambda_c_array'][:, i], label='lambda_c')
+        plt.plot(x_list, mu_s_list, label='mu_s')
+        # plt.plot(test_case_25['mu_c_array'][:, i], label='mu_c')
+        plt.legend()
+        plt.title(f'Station {i+1}')
+        plt.show()

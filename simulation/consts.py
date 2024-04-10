@@ -54,13 +54,15 @@ SINGLE_ROLLOUT_HORIZON = 360
 # distance matrix (for vehicle) fix rate (15km/h, min -> new speed, min)
 DIST_FIX = 4
 # arrival rate (bikes/5min)
-SELF_ARR_RATE_FIX = 0.8
-OPPO_ARR_RATE_FIX = 0.8
+OVERALL_RATE = 0.5
+MORN_ARR_RATE_FIX = 1
+MORN_DEP_RATE_FIX = 1
 # departure rate (bikes/5min)
-DEP_FIX = 1
+AFT_ARR_RATE_FIX = 1
+AFT_DEP_RATE_FIX = 1
 
 # route cost
-ROUTE_COST = 2  # cost for single vehicle driving 10 min
+ROUTE_COST = UNIT_TRAVEL_COST * 10  # cost for single vehicle driving 10 min
 
 # offline VFA training params
 
@@ -69,7 +71,7 @@ POLICY_DURATION = 30  # in minute, the policy changes every POLICY_DURATION minu
 SAFETY_INV_LB = 0
 SAFETY_INV_UB = 1
 EPSILON = 0.1  # in epsilon-greedy policy
-DISTANCE_COST_UNIT = ROUTE_COST / 10
+DISTANCE_COST_UNIT = UNIT_TRAVEL_COST
 ORDER_INCOME_UNIT = 2
 LAMBDA = 0.98  # in RLS algorithm
 SMALL_CONST_IN_INIT = 0.01  # in RLS algorithm
@@ -94,4 +96,4 @@ NUM_INIT_ROUTES = 10
 NUM_DUAL_ROUTES = 10
 
 # multi-vehicle mode
-NUM_VEHICLES = 1
+NUM_VEHICLES = 2
