@@ -2,7 +2,6 @@ import joblib
 import time
 import pickle
 import numpy as np
-import pandas as pd
 
 from simulation.sim import Simulation
 from simulation.consts import ORDER_INCOME_UNIT, DISTANCE_COST_UNIT
@@ -54,10 +53,10 @@ if __name__ == '__main__':
 
     test_result, test_result_work, test_distance, test_value = [], [], [], []
 
-    test_num = 50
+    test_num = 10
 
-    test_single = True
-    test_policy = 'GLA'
+    test_single = False
+    test_policy = 'DP_test'
 
     # MINLP model
     if test_single is True:
@@ -90,6 +89,7 @@ if __name__ == '__main__':
         # print(test.best_val_list)
         test_result.append(test.success)
         test_result_work.append(test.success_work)
+        print(f'test_success_work: {test.success_work}')
         test_distance.append(sum(test.veh_distance))
         test_value.append(test.success_work * ORDER_INCOME_UNIT - sum(test.veh_distance) * DISTANCE_COST_UNIT)
         # cost_list.append(sum(test.cost_list))

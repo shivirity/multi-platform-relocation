@@ -14,7 +14,7 @@ sys.path.append(rf'{os.path.abspath(os.path.join(os.getcwd(), "../.."))}\ALNS-fo
 
 # from alns import get_relocation_routes
 from route_extension.route_extension_algo import get_REA_routes_test
-from route_extension.cg_re_algo import get_CG_REA_routes, get_DP_routes, get_exact_routes
+from route_extension.cg_re_algo import get_CG_REA_routes, get_DP_routes_greedy, get_exact_routes
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -82,7 +82,7 @@ class Simulation:
 
         # policy
         # single is True: 'None', 'STR', 'rollout', 'GLA', 'MINLP'
-        # single is False: 'random', 'multi-STR', 'MINLP', 'REA_test', 'DP_test'
+        # single is False: 'random', 'MINLP', 'REA_test', 'DP_test'
         self.policy = None
         self.single = kwargs['single'] if 'single' in kwargs.keys() else False
         # bool, False means decide with multi-information, True means decide with single-info
@@ -290,60 +290,6 @@ class Simulation:
                     dec_list.append({'inv': inv_dec, 'route': route_dec})
                 else:
                     dec_list.append({'inv': None, 'route': None})
-
-        # short-term relocation
-        elif self.policy == 'multi-STR':  # no new rules has been added
-            cur_station, cur_load = self.veh_info[0], self.veh_info[2]
-            if cur_station:
-                cur_inv = self.stations[cur_station].num_self
-                # shortage
-                if cur_inv < round(GAMMA * self.stations[cur_station].cap):
-                    inv_dec = min(round(GAMMA * self.stations[cur_station].cap), cur_inv + cur_load)
-                    load_after_ins = cur_load - (inv_dec - cur_inv)
-                # surplus
-                elif cur_inv > round((1 - GAMMA) * self.stations[cur_station].cap):
-                    inv_dec = max(round((1 - GAMMA) * self.stations[cur_station].cap), cur_inv - (VEH_CAP - cur_load))
-                    load_after_ins = cur_load + cur_inv - inv_dec
-                # balanced
-                else:
-                    inv_dec = -1
-                    load_after_ins = cur_load
-                pot_stations = [i for i in self.stations.keys() if i != cur_station]
-                if 0 < load_after_ins < VEH_CAP:
-                    imb_stations = [i for i in pot_stations
-                                    if self.stations[i].num_self > (1 - GAMMA) * self.stations[i].cap or self.stations[
-                                        i].num_self < GAMMA * self.stations[i].cap]
-                elif load_after_ins == 0:
-                    imb_stations = [i for i in pot_stations if
-                                    self.stations[i].num_self > (1 - GAMMA) * self.stations[i].cap]
-                elif load_after_ins == VEH_CAP:
-                    imb_stations = [i for i in pot_stations if
-                                    self.stations[i].num_self < GAMMA * self.stations[i].cap]
-                else:
-                    imb_stations = []
-                # 有可以前往的站点
-                if imb_stations:
-                    dis_list = [self.dist[cur_station, i] for i in imb_stations]
-                    route_dec_idx = \
-                        random.sample([i for i in range(len(imb_stations)) if dis_list[i] == min(dis_list)], 1)[0]
-                    route_dec = imb_stations[route_dec_idx]
-                # 没有可以前往的站点
-                else:
-                    route_dec = cur_station
-            else:
-                inv_dec = -1
-                pot_stations = [i for i in self.stations.keys()]
-                surplus_stations = [i for i in pot_stations if
-                                    self.stations[i].num_self > (1 - GAMMA) * self.stations[i].cap]
-                # 有可以前往的站点
-                if surplus_stations:
-                    dis_list = [self.dist[0, i] for i in surplus_stations]
-                    route_dec_idx = \
-                        random.sample([i for i in range(len(surplus_stations)) if dis_list[i] == min(dis_list)], 1)[0]
-                    route_dec = surplus_stations[route_dec_idx]
-                # 没有可以前往的站点
-                else:
-                    route_dec = 0
 
         elif self.policy == 'MINLP':
 
@@ -637,16 +583,18 @@ class Simulation:
                                 f'expected target inventory: {self.future_dec_dict["exp_target_inv"][0][0]}')
 
         elif self.policy == 'DP_test' or self.policy == 'exact_test':
-            if self.last_dec_t is None:  # at depot
+            # todo: fix 'DP_test' with: 1.compute_route在depot停留(要做!)
+            dec_list = []
+            if self.last_dec_t is None:  # all at depot
                 assert self.t == RE_START_T
                 self.last_dec_t = self.t  # first decision
                 # closest to the planned amount of loading/unloading
                 if self.policy == 'DP_test':
-                    self.future_dec_dict = get_DP_routes(
-                        num_of_van=1,
-                        van_location=[0],
-                        van_dis_left=[0],
-                        van_load=[0],
+                    self.future_dec_dict = get_DP_routes_greedy(
+                        num_of_van=self.num_of_veh,
+                        van_location=[0 for _ in range(self.num_of_veh)],
+                        van_dis_left=[0 for _ in range(self.num_of_veh)],
+                        van_load=[0 for _ in range(self.num_of_veh)],
                         c_s=CAP_S,
                         c_v=VEH_CAP,
                         cur_t=round(self.t / MIN_RUN_STEP),
@@ -662,160 +610,139 @@ class Simulation:
                         alpha=ALPHA,
                     )
                 else:
-                    assert self.policy == 'exact_test'
-                    self.future_dec_dict = get_exact_routes(
-                        van_location=[0],
-                        van_dis_left=[0],
-                        van_load=[0],
-                        c_s=CAP_S,
-                        c_v=VEH_CAP,
-                        cur_t=round(self.t / MIN_RUN_STEP),
-                        t_p=round(T_PLAN / MIN_RUN_STEP),
-                        t_f=round(T_FORE / MIN_RUN_STEP),
-                        t_roll=round(T_ROLL / MIN_RUN_STEP),
-                        c_mat=self.get_MINLP_dist_mat(),
-                        ei_s_arr=self.ei_s_arr,
-                        ei_c_arr=self.ei_c_arr,
-                        esd_arr=self.esd_arr,
-                        x_s_arr=[val.num_self for val in self.stations.values()],
-                        x_c_arr=[val.num_opponent for val in self.stations.values()],
-                        alpha=ALPHA,
-                    )
+                    assert False, f'to fill mode: exact_test'
+                # self.future_dec_dict = {'objective': 4190.522352925615, 'start_time': 84, 'routes': [[0, 5, 4, 6, 19, 12, 16], [0, 15, 7, 10, 8, 18]], 'exp_inv': [[0, 34.76888403354017, None, 1.3884099068276705, None, None, 36.34512042804721, None, 11.54645116635093, None, 38.70774301315821, None, 0.9211436567541507], [0, 0, 26.04215368940173, None, 1.0744787598225505, None, None, None, 30.01515586957035, None, 38.375582624506166, None, 4.419167753156481]], 'exp_target_inv': [[0, 10, None, 26, None, None, 11, None, 37, None, 14, None, 26], [0, 0, 1, None, 26, None, None, None, 19, None, 24, None, 29]], 'loc': [[0, 5, None, 4, None, None, 6, None, 19, None, 12, None, 16], [0, 0, 15, None, 7, None, None, None, 10, None, 8, None, 18]], 'n_r': [[0, -25, None, 25, None, None, -25, None, 25, None, -25, None, 25], [0, -100, -25, None, 25, None, None, None, -11, None, -14, None, 25]]}
                 print(self.future_dec_dict)
-                inv_dec = -1
-                route_dec = self.future_dec_dict['routes'][0][1]
-                if self.print_action:
-                    print(f'expected inventory: at depot, expected target inventory: at depot')
+                for veh in range(self.num_of_veh):
+                    inv_dec = -1
+                    if self.future_dec_dict['loc'][veh][1] != 0:
+                        route_dec = self.future_dec_dict['routes'][veh][1]
+                    else:  # initial stay at depot
+                        route_dec = 0
+                    dec_list.append({'inv': inv_dec, 'route': route_dec})
+                    if self.print_action:
+                        print(f'Vehicle {veh}: at depot')
             else:  # at station
-                cur_station, cur_load = self.veh_info[0], self.veh_info[2]
                 if self.t == RE_END_T:
-                    realized_ins = min(cur_load, self.stations[cur_station].cap - self.stations[cur_station].num_self)
-                    inv_dec = self.stations[cur_station].num_self + realized_ins  # drop all the bikes here
-                    route_dec = cur_station
-                else:
-                    if self.t - self.last_dec_t < T_ROLL:  # before rolling
-                        cur_ind = round(self.t / MIN_RUN_STEP - self.future_dec_dict['start_time'])
-                        if self.future_dec_dict['loc'][0][cur_ind] == cur_station:
-                            planned_ins = self.future_dec_dict['n_r'][0][cur_ind]
+                    for veh in range(self.num_of_veh):
+                        if self.veh_info[veh][2] == 0:  # time to decide
+                            cur_station, cur_load = self.veh_info[veh][0], self.veh_info[veh][3]
+                            realized_ins = min(cur_load, self.stations[cur_station].cap - self.stations[cur_station].num_self)
+                            inv_dec = self.stations[cur_station].num_self + realized_ins
+                            route_dec = cur_station
+                            dec_list.append({'inv': inv_dec, 'route': route_dec})
+                        else:
+                            dec_list.append({'inv': None, 'route': None})
+                elif self.t - self.last_dec_t < T_ROLL:
+                    for veh in range(self.num_of_veh):
+                        assert self.veh_info[veh][2] is not None
+                        if self.veh_info[veh][2] == 0:  # time to decide
+                            cur_station, cur_load = self.veh_info[veh][0], self.veh_info[veh][3]
+                            cur_ind = round(self.t / MIN_RUN_STEP - self.future_dec_dict['start_time'])
+                            if self.future_dec_dict['loc'][veh][cur_ind] == cur_station:
+                                planned_ins = self.future_dec_dict['n_r'][veh][cur_ind]
+                                if planned_ins < -99:  # stay
+                                    inv_dec = -1
+                                else:
+                                    if planned_ins > 0:
+                                        realized_ins = min(planned_ins, cur_load,
+                                                           self.stations[cur_station].cap - self.stations[cur_station].num_self)
+                                        inv_dec = self.stations[cur_station].num_self + realized_ins
+                                    elif planned_ins < 0:
+                                        realized_ins = min(-planned_ins, self.stations[cur_station].num_self,
+                                                           VEH_CAP - cur_load)
+                                        inv_dec = self.stations[cur_station].num_self - realized_ins
+                                    else:
+                                        inv_dec = self.stations[cur_station].num_self  # do no repositioning
+                                if cur_ind < len(self.future_dec_dict['loc'][veh]) - 1:
+                                    if self.future_dec_dict['loc'][veh][cur_ind + 1] == cur_station:
+                                        route_dec = cur_station  # stay at current station
+                                    else:
+                                        # assert self.future_dec_dict['loc'][veh][cur_ind + 1] is None, f"{self.future_dec_dict['loc'][veh][cur_ind + 1]}"
+                                        cur_route_ind = self.future_dec_dict['routes'][veh].index(cur_station)
+                                        route_dec = self.future_dec_dict['routes'][veh][cur_route_ind + 1]
+                                        # fix inv decision
+                                        if cur_station > 0:
+                                            inv_dec = inv_dec if inv_dec > -0.5 else self.stations[cur_station].num_self
+                                        else:
+                                            inv_dec = -1
+                                else:
+                                    print('cannot cover t_rolling')
+                                    route_dec = cur_station
+                                if self.print_action:
+                                    print(
+                                        f'Vehicle {veh}: expected inventory: {self.future_dec_dict["exp_inv"][veh][cur_ind]}, '
+                                        f'expected target inventory: {self.future_dec_dict["exp_target_inv"][veh][cur_ind]}')
+                                dec_list.append({'inv': inv_dec, 'route': route_dec})
+                            else:  # remain at the last station, ins sequence cannot cover rolling time
+                                assert False
+                        else:
+                            dec_list.append({'inv': None, 'route': None})
+                else:  # update dict
+                    self.last_dec_t = self.t
+                    if self.policy == 'DP_test':
+                        self.future_dec_dict = get_DP_routes_greedy(
+                            num_of_van=self.num_of_veh,
+                            van_location=[self.veh_info[veh][1] for veh in range(self.num_of_veh)],
+                            van_dis_left=[round(self.veh_info[veh][2]/MIN_RUN_STEP) for veh in range(self.num_of_veh)],
+                            van_load=[self.veh_info[veh][3] for veh in range(self.num_of_veh)],
+                            c_s=CAP_S,
+                            c_v=VEH_CAP,
+                            cur_t=round(self.t / MIN_RUN_STEP),
+                            t_p=round(T_PLAN / MIN_RUN_STEP),
+                            t_f=round(T_FORE / MIN_RUN_STEP),
+                            t_roll=round(T_ROLL / MIN_RUN_STEP),
+                            c_mat=self.get_MINLP_dist_mat(),
+                            ei_s_arr=self.ei_s_arr,
+                            ei_c_arr=self.ei_c_arr,
+                            esd_arr=self.esd_arr,
+                            x_s_arr=[val.num_self for val in self.stations.values()],
+                            x_c_arr=[val.num_opponent for val in self.stations.values()],
+                            alpha=ALPHA,
+                        )
+                    else:
+                        assert False, f'to fill mode: exact_test'
+                    print(self.future_dec_dict)
+                    for veh in range(self.num_of_veh):
+                        assert self.veh_info[veh][2] is not None
+                        if self.veh_info[veh][2] == 0:  # time to decide
+                            cur_station, cur_load = self.veh_info[veh][0], self.veh_info[veh][3]
+                            planned_ins = self.future_dec_dict['n_r'][veh][0]
+                            cur_ind = round(self.t / MIN_RUN_STEP - self.future_dec_dict['start_time'])
                             if planned_ins < -99:  # stay
                                 inv_dec = -1
                             else:
                                 if planned_ins > 0:
                                     realized_ins = min(planned_ins, cur_load,
-                                                       self.stations[cur_station].cap - self.stations[
-                                                           cur_station].num_self)
+                                                       self.stations[cur_station].cap - self.stations[cur_station].num_self)
                                     inv_dec = self.stations[cur_station].num_self + realized_ins
                                 elif planned_ins < 0:
                                     realized_ins = min(-planned_ins, self.stations[cur_station].num_self,
                                                        VEH_CAP - cur_load)
                                     inv_dec = self.stations[cur_station].num_self - realized_ins
                                 else:
-                                    inv_dec = self.stations[cur_station].num_self  # do no repositioning
-
-                            if cur_ind < len(self.future_dec_dict['loc'][0]) - 1:
-                                if self.future_dec_dict['loc'][0][cur_ind + 1] == cur_station:
-                                    # stay at current station
-                                    route_dec = cur_station
-                                else:
-                                    assert ((self.future_dec_dict['loc'][0][cur_ind + 1] is None) or
-                                            (self.future_dec_dict['loc'][0][cur_ind] == 0))
-                                    cur_route_ind = self.future_dec_dict['routes'][0].index(cur_station)
-                                    route_dec = self.future_dec_dict['routes'][0][cur_route_ind + 1]
-                                    # fix inv decision
-                                    inv_dec = inv_dec if inv_dec > -0.5 else self.stations[cur_station].num_self
-
-                            else:
-                                print('cannot cover t_rolling')
-                                print(
-                                    f'time: {self.t}, cur_station: {cur_station}, start_time: {self.future_dec_dict["start_time"]}, routes: {self.future_dec_dict["loc"][0]}')
+                                    inv_dec = self.stations[cur_station].num_self
+                            if len(self.future_dec_dict['routes'][veh]) == 1:
                                 route_dec = cur_station
-
+                            else:
+                                if cur_ind < len(self.future_dec_dict['loc'][veh]) - 1:
+                                    if self.future_dec_dict['loc'][veh][cur_ind + 1] == cur_station:
+                                        route_dec = cur_station
+                                    else:
+                                        assert self.future_dec_dict['loc'][veh][cur_ind + 1] is None
+                                        route_dec = self.future_dec_dict['routes'][veh][1]
+                                        # fix inv decision
+                                        inv_dec = inv_dec if inv_dec > -0.5 else self.stations[cur_station].num_self
+                                else:
+                                    print('cannot cover t_rolling')
+                                    route_dec = cur_station
                             if self.print_action:
                                 print(
-                                    f'expected inventory: {self.future_dec_dict["exp_inv"][0][cur_ind]}, '
-                                    f'expected target inventory: {self.future_dec_dict["exp_target_inv"][0][cur_ind]}')
-                        else:  # remain at the last station, ins sequence cannot cover rolling time
-                            assert cur_station == self.future_dec_dict['routes'][0][-1], \
-                                f'{cur_station}, {self.future_dec_dict["routes"]}'
-                            assert False, 'check一下是什么情况'
-                            # inv_dec, route_dec = self.stations[cur_station].num_self, cur_station
-
-                    else:  # update dict
-                        self.last_dec_t = self.t
-                        if self.policy == 'DP_test':
-                            self.future_dec_dict = get_DP_routes(
-                                num_of_van=1,
-                                van_location=[cur_station],
-                                van_dis_left=[0],
-                                van_load=[cur_load],
-                                c_s=CAP_S,
-                                c_v=VEH_CAP,
-                                cur_t=round(self.t / MIN_RUN_STEP),
-                                t_p=round(T_PLAN / MIN_RUN_STEP),
-                                t_f=round(T_FORE / MIN_RUN_STEP),
-                                t_roll=round(T_ROLL / MIN_RUN_STEP),
-                                c_mat=self.get_MINLP_dist_mat(),
-                                ei_s_arr=self.ei_s_arr,
-                                ei_c_arr=self.ei_c_arr,
-                                esd_arr=self.esd_arr,
-                                x_s_arr=[val.num_self for val in self.stations.values()],
-                                x_c_arr=[val.num_opponent for val in self.stations.values()],
-                                alpha=ALPHA,
-                            )
+                                    f'Vehicle {veh}: expected inventory: {self.future_dec_dict["exp_inv"][veh][0]}, '
+                                    f'expected target inventory: {self.future_dec_dict["exp_target_inv"][veh][0]}')
+                            dec_list.append({'inv': inv_dec, 'route': route_dec})
                         else:
-                            self.future_dec_dict = get_exact_routes(
-                                van_location=[0],
-                                van_dis_left=[0],
-                                van_load=[0],
-                                c_s=CAP_S,
-                                c_v=VEH_CAP,
-                                cur_t=round(self.t / MIN_RUN_STEP),
-                                t_p=round(T_PLAN / MIN_RUN_STEP),
-                                t_f=round(T_FORE / MIN_RUN_STEP),
-                                t_roll=round(T_ROLL / MIN_RUN_STEP),
-                                c_mat=self.get_MINLP_dist_mat(),
-                                ei_s_arr=self.ei_s_arr,
-                                ei_c_arr=self.ei_c_arr,
-                                esd_arr=self.esd_arr,
-                                x_s_arr=[val.num_self for val in self.stations.values()],
-                                x_c_arr=[val.num_opponent for val in self.stations.values()],
-                                alpha=ALPHA,
-                            )
-                        print(self.future_dec_dict)
-                        assert self.future_dec_dict['loc'][0][0] == cur_station
-                        planned_ins = self.future_dec_dict['n_r'][0][0]
-                        cur_ind = round(self.t / MIN_RUN_STEP - self.future_dec_dict['start_time'])
-                        if planned_ins > 0:
-                            realized_ins = min(
-                                planned_ins, cur_load,
-                                self.stations[cur_station].cap - self.stations[cur_station].num_self)
-                            inv_dec = self.stations[cur_station].num_self + realized_ins
-                        elif planned_ins < 0:
-                            realized_ins = min(
-                                -planned_ins, self.stations[cur_station].num_self, VEH_CAP - cur_load)
-                            inv_dec = self.stations[cur_station].num_self - realized_ins
-                        else:
-                            inv_dec = self.stations[cur_station].num_self
-                        if len(self.future_dec_dict['routes'][0]) == 1:
-                            route_dec = cur_station
-                        else:
-                            if cur_ind < len(self.future_dec_dict['loc'][0]) - 1:
-                                if self.future_dec_dict['loc'][0][cur_ind + 1] == cur_station:
-                                    route_dec = cur_station
-                                else:
-                                    assert self.future_dec_dict['loc'][0][cur_ind + 1] is None
-                                    route_dec = self.future_dec_dict['routes'][0][1]
-                                    # fix inv decision
-                                    inv_dec = inv_dec if inv_dec > -0.5 else self.stations[cur_station].num_self
-                            else:
-                                print('cannot cover t_rolling')
-                                print(
-                                    f'time: {self.t}, cur_station: {cur_station}, start_time: {self.future_dec_dict["start_time"]}, routes: {self.future_dec_dict["loc"][0]}')
-                                route_dec = cur_station
-                        if self.print_action:
-                            print(
-                                f'expected inventory: {self.future_dec_dict["exp_inv"][0][0]}, '
-                                f'expected target inventory: {self.future_dec_dict["exp_target_inv"][0][0]}')
+                            dec_list.append({'inv': None, 'route': None})
 
         else:
             print('policy type error.')

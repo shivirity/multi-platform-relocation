@@ -266,24 +266,32 @@ class ESDComputer:
                     ]
                 cost = profit - cost_sum  # the cost represents the delta value
 
-        else:  # can stay at the stations todo: need to adjust then t_left is not zero, 未作可以在depot停留的修改
+        else:  # can stay at the stations todo: 未作可以在depot停留的修改
             cap_van, cap_station = VEH_CAP, CAP_S
             route = list(r)
             num_level = round(cap_van + 1)  # number of levels of load on van
-            to_visit_stations = [val for val in route if val != 0]
-            num_stations = len(to_visit_stations)
+            # to_visit_stations = [val for val in route if val != 0]
+            # num_stations = len(to_visit_stations)
+            num_route = len(route)
+            route_without_depot = [val for val in route if val != 0]
             init_loc = r[0]
-            reward_arr = [[[None for _ in range(num_level)] for __ in range(num_stations)] for ___ in range(t_repo + 1)]
-            trace_arr = [[[None for _ in range(num_level)] for __ in range(num_stations)] for ___ in range(t_repo + 1)]
-            calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
+            reward_arr = [[[None for _ in range(num_level)] for __ in range(num_route)] for ___ in range(t_repo + 1)]
+            trace_arr = [[[None for _ in range(num_level)] for __ in range(num_route)] for ___ in range(t_repo + 1)]
+            calcu_arr = [[False for _ in range(num_route)] for __ in range(t_repo + 1)]
             for t in range(t_repo):
-                if t == 0:
+                if t == t_left:
                     if init_loc == 0:
                         assert t_left == 0 and init_l == 0
-                        if to_visit_stations:
-                            next_s = to_visit_stations[0]
+                        # stay at depot
+                        stay_t = 1
+                        calcu_arr[t + stay_t][0] = True
+                        reward_arr[t + stay_t][0][0] = 0
+                        trace_arr[t + stay_t][0][0] = (t, -16, init_l)
+                        if route_without_depot:
+                            next_s = route_without_depot[0]
                             arr_t = round(self.c_mat[init_loc, next_s])
-                            calcu_arr[t + arr_t][0] = True
+                            next_s_idx = route.index(next_s)
+                            calcu_arr[t + arr_t][next_s_idx] = True
                             for j in range(num_level):
                                 ins = 0 - j
                                 if 0 <= self.ei_s_arr[next_s - 1,
@@ -291,14 +299,16 @@ class ESDComputer:
                                 self.t_cur + arr_t,
                                 x_s_arr[next_s - 1],
                                 x_c_arr[next_s - 1]] + ins <= cap_station:
-                                    reward_arr[t + arr_t][0][j] = ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
+                                    reward_arr[t + arr_t][next_s_idx][
+                                        j] = ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                         station_id=next_s,
-                                        t_arr=arr_t, ins=ins,
+                                        t_arr=arr_t,
+                                        ins=ins,
                                         x_s_arr=x_s_arr,
                                         x_c_arr=x_c_arr,
                                         mode='multi',
                                         delta=True) - ALPHA * arr_t
-                                    trace_arr[t + arr_t][0][j] = (0, -16, init_l)
+                                    trace_arr[t + arr_t][next_s_idx][j] = (t_left, -16, init_l)
                                 else:
                                     pass
                         else:
@@ -306,22 +316,27 @@ class ESDComputer:
                     else:  # init_loc != 0
                         for inv in range(num_level):  # label every inventory level at initial point
                             ins = init_l - inv
-                            if 0 <= x_s_arr[init_loc - 1] + ins <= cap_station:
+                            if 0 <= self.ei_s_arr[init_loc - 1,
+                                self.t_cur,
+                                self.t_cur + t_left,
+                                x_s_arr[init_loc - 1],
+                                x_c_arr[init_loc - 1]] + ins <= cap_station:
+                                # if 0 <= x_s_arr[init_loc - 1] + ins <= cap_station:
                                 reward_arr[t][0][inv] = ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                     station_id=init_loc, t_arr=t_left, ins=ins, x_s_arr=x_s_arr, x_c_arr=x_c_arr,
                                     mode='multi', delta=True
                                 )
                                 cur_reward = reward_arr[t][0][inv]
                                 # trace to time step 0
-                                if len(to_visit_stations) == 1:
-                                    to_visit_next = list(to_visit_stations)
+                                if len(route_without_depot) == 1:
+                                    to_visit_next = list(route_without_depot)
                                 else:
-                                    to_visit_next = to_visit_stations[:2]
+                                    to_visit_next = route_without_depot[:2]
                                 for ne in to_visit_next:
                                     if ne == init_loc:  # stay at init location
                                         stay_t = 1
                                         if t + stay_t <= t_repo:
-                                            ne_idx = to_visit_stations.index(ne)
+                                            ne_idx = route_without_depot.index(ne)
                                             calcu_arr[t + stay_t][ne_idx] = True
                                             if reward_arr[t + stay_t][ne_idx][inv] is None:
                                                 reward_arr[t + stay_t][ne_idx][inv] = cur_reward
@@ -338,14 +353,14 @@ class ESDComputer:
                                     else:  # travel to next station
                                         arr_t = round(self.c_mat[init_loc, ne])
                                         if t + arr_t <= t_repo:
-                                            ne_idx = to_visit_stations.index(ne)
+                                            ne_idx = route_without_depot.index(ne)
                                             calcu_arr[t + arr_t][ne_idx] = True
                                             for ne_inv in range(num_level):
                                                 ins = inv - ne_inv
-                                                if 0 <= self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + arr_t,
+                                                if 0 <= self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + t + arr_t,
                                                 x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_station:
                                                     new_reward = cur_reward + ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
-                                                        station_id=ne, t_arr=arr_t, ins=ins, x_s_arr=x_s_arr,
+                                                        station_id=ne, t_arr=t + arr_t, ins=ins, x_s_arr=x_s_arr,
                                                         x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * (arr_t - 1)
                                                     if reward_arr[t + arr_t][ne_idx][ne_inv] is None:
                                                         reward_arr[t + arr_t][ne_idx][ne_inv] = new_reward
@@ -363,8 +378,8 @@ class ESDComputer:
                             else:
                                 pass
 
-                else:  # t > 0
-                    for cur_s in range(num_stations):
+                elif t > t_left:  # t > t_left
+                    for cur_s in range(num_route):
                         if calcu_arr[t][cur_s] is False:
                             pass
                         else:
@@ -373,14 +388,14 @@ class ESDComputer:
                                     pass
                                 else:
                                     cur_reward = reward_arr[t][cur_s][inv]
-                                    if cur_s == num_stations - 1:
-                                        to_visit_next = [to_visit_stations[cur_s]]
+                                    if cur_s == num_route - 1:
+                                        to_visit_next = [route[cur_s]]
                                     else:
-                                        to_visit_next = to_visit_stations[cur_s: cur_s + 2]
+                                        to_visit_next = route[cur_s: cur_s + 2]
                                     for ne in to_visit_next:
-                                        if t == 1 and cur_s == 0:
-                                            logging.debug('here')
-                                        if ne == to_visit_stations[cur_s]:  # stay at current location
+                                        # if t == 1 and cur_s == 0:
+                                        #     logging.debug('here')
+                                        if ne == route[cur_s]:  # stay at current location
                                             stay_t = 1
                                             if t + stay_t <= t_repo:
                                                 calcu_arr[t + stay_t][cur_s] = True
@@ -398,9 +413,9 @@ class ESDComputer:
                                             else:
                                                 pass
                                         else:  # travel to next station
-                                            arr_t = round(self.c_mat[to_visit_stations[cur_s], ne])
+                                            arr_t = round(self.c_mat[route[cur_s], ne])
                                             if t + arr_t <= t_repo:
-                                                ne_idx = to_visit_stations.index(ne)
+                                                ne_idx = route.index(ne)
                                                 calcu_arr[t + arr_t][ne_idx] = True
                                                 assert ne_idx == cur_s + 1
                                                 for next_inv in range(num_level):
@@ -409,7 +424,8 @@ class ESDComputer:
                                                     x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_station:
                                                         new_reward = cur_reward + ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                                             station_id=ne, t_arr=t + arr_t, ins=ins, x_s_arr=x_s_arr,
-                                                            x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * (arr_t - 1)
+                                                            x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * (
+                                                                             arr_t - 1)
                                                         if reward_arr[t + arr_t][ne_idx][next_inv] is None:
                                                             reward_arr[t + arr_t][ne_idx][next_inv] = new_reward
                                                             trace_arr[t + arr_t][ne_idx][next_inv] = (t, cur_s, inv)
@@ -425,30 +441,35 @@ class ESDComputer:
                                                 pass
 
             max_reward_list, max_label_list = [], []
-            for s in range(num_stations):
+            for s in range(num_route):
                 for inv in range(num_level):
                     # print(t_repo, s, inv)
                     if reward_arr[t_repo][s][inv] is not None:
                         max_reward_list.append(reward_arr[t_repo][s][inv])
                         max_label_list.append((t_repo, s, inv))
-            max_reward = max(max_reward_list)
-            max_label = max_label_list[max_reward_list.index(max_reward)]
-            k_t_repo, k_s, k_inv = max_label
-            loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
-            while True:
-                if k_t_repo == 0:
-                    assert False, f'repositioning window length is {t_repo}'
-                else:
-                    loc_list[k_t_repo] = to_visit_stations[k_s]
-                    inv_list[k_t_repo] = k_inv
-                    k_t_repo, k_s, k_inv = trace_arr[k_t_repo][k_s][k_inv]
+            if max_reward_list:
+                max_reward = max(max_reward_list)
+                max_label = max_label_list[max_reward_list.index(max_reward)]
+                k_t_repo, k_s, k_inv = max_label
+                loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+                while True:
                     if k_t_repo == 0:
-                        loc_list[k_t_repo] = to_visit_stations[k_s] if k_s != -16 else 0
+                        assert False, f'repositioning window length is {t_repo}'
+                    else:
+                        loc_list[k_t_repo] = route[k_s]
                         inv_list[k_t_repo] = k_inv
-                        break
-            print(f'max reward: {max_reward}')
-            print(loc_list)
-            print(inv_list)
+                        k_t_repo, k_s, k_inv = trace_arr[k_t_repo][k_s][k_inv]
+                        if k_t_repo == t_left:
+                            loc_list[k_t_repo] = route[k_s] if k_s != -16 else 0
+                            inv_list[k_t_repo] = k_inv
+                            break
+                print(f'max reward: {max_reward}')
+                print(loc_list)
+                print(inv_list)
+            else:
+                assert t_left >= t_repo
+                max_reward, loc_list, inv_list = 0, [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+                # assert False, f'{r}, {t_left}, {init_l}, {t_repo}'
             return max_reward, loc_list, inv_list
 
         return cost, instruct
