@@ -78,9 +78,10 @@ def is_dominated(label1: list, label2: list) -> bool:
 
 
 def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
-                        init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
-                        esd_arr: np.ndarray, c_mat: np.ndarray, cur_t: int, t_p: int, t_f: int, t_roll: int,
-                        alpha: float, dual_van_vec: list, dual_station_vec: list):
+                                init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
+                                ei_c_arr: np.ndarray,
+                                esd_arr: np.ndarray, c_mat: np.ndarray, cur_t: int, t_p: int, t_f: int, t_roll: int,
+                                alpha: float, dual_van_vec: list, dual_station_vec: list):
     """calculate exact reduced cost using dynamic programming"""
     com = ESDComputer(
         esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
@@ -153,7 +154,8 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
             else:  # init_loc > 0
                 for inv in range(inv_num):  # label every inventory level at initial point
                     ins = init_load - inv_dict[inv]
-                    if 0 <= ei_s_arr[init_loc - 1, cur_t, cur_t + t, x_s_arr[init_loc - 1], x_c_arr[init_loc - 1]] + ins <= cap_s:
+                    if 0 <= ei_s_arr[
+                        init_loc - 1, cur_t, cur_t + t, x_s_arr[init_loc - 1], x_c_arr[init_loc - 1]] + ins <= cap_s:
                         reward_arr[t][init_loc][inv] = [(
                             ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
                                 station_id=init_loc,
@@ -265,7 +267,8 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                                         if next_s == cur_s:
                                             stay_t = 1
                                             if t + stay_t <= t_repo:
-                                                if t + stay_t < t_repo - 1 or inv_dict[inv] == 0:  # 最后一站放空，不改变库存所以remain inv
+                                                if t + stay_t < t_repo - 1 or inv_dict[
+                                                    inv] == 0:  # 最后一站放空，不改变库存所以remain inv
                                                     calcu_arr[t + stay_t][next_s - 1] = True
                                                     if reward_arr[t + stay_t][next_s][inv] is None:
                                                         new_reward = cur_reward
@@ -1193,6 +1196,37 @@ def get_dp_reduced_cost_numba(cap_v: int, cap_s: int, num_stations: int, init_lo
     # clearn_route_arr[-1] = max_reward
 
     return clearn_route_arr
+
+
+# def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
+#                                       init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
+#                                       ei_c_arr: np.ndarray, esd_arr: np.ndarray, c_mat: np.ndarray,
+#                                       cur_t: int, t_p: int, t_f: int, alpha: float,
+#                                       dual_van_vec: list, dual_station_vec: list, inventory_dict: dict = None,
+#                                       inventory_id_dict: dict = None):
+#     """calculate heuristic or exact reduced cost using bidirectional labeling algorithm"""
+#     com = ESDComputer(
+#         esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+#     cur_t = round(cur_t - RE_START_T / 10)
+#     t_repo = t_p if RE_START_T / 10 + cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t - RE_START_T / 10)
+#     half_way_t = int(t_repo / 2)  # forward to: h(actually h-1?), backward to: h + 2(min travel distance)
+#     if t_repo == 1:
+#         return [init_loc], com.compute_ESD_in_horizon(station_id=init_loc, t_arr=0, ins=init_load, x_s_arr=x_s_arr,
+#                                                       x_c_arr=x_c_arr, mode='multi', delta=True, repo=True)
+#     elif t_repo == 0:
+#         assert False
+#     # decision inventory state
+#     inv_dict = inventory_dict if inventory_dict is not None else {0: 0, 1: 5, 2: 10, 3: 15, 4: 20, 5: 25}
+#     inv_id_dict = inventory_id_dict if inventory_id_dict is not None else {25: 5, 20: 4, 15: 3, 10: 2, 5: 1, 0: 0}
+#     inv_num = len(inv_dict)
+#     print(f'in get_dp_reduced_cost_bidirec(), t_repo = {t_repo}')
+#     reward_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+#     trace_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+#     calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
+#     st = time.process_time()
+#     for t in range(t_repo + 1):
+#         if
+
 
 
 def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init_loc: list, init_load: list,

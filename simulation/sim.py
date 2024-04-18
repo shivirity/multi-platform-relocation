@@ -583,7 +583,6 @@ class Simulation:
                                 f'expected target inventory: {self.future_dec_dict["exp_target_inv"][0][0]}')
 
         elif self.policy == 'DP_test' or self.policy == 'exact_test':
-            # todo: fix 'DP_test' with: 1.compute_route在depot停留(要做!)
             dec_list = []
             if self.last_dec_t is None:  # all at depot
                 assert self.t == RE_START_T
