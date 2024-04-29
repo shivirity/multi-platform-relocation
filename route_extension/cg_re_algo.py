@@ -4,7 +4,7 @@ import time
 import logging
 import numpy as np
 from route_extension.route_extension_algo import get_REA_routes_test, ESDComputer
-from simulation.consts import RE_START_T, RE_END_T, ORDER_INCOME_UNIT
+from simulation.consts import RE_START_T, RE_END_T, ORDER_INCOME_UNIT, VEH_CAP
 from gurobipy import *
 
 
@@ -77,6 +77,75 @@ def is_dominated(label1: list, label2: list) -> bool:
         return False
 
 
+def is_backward_dominated(com: ESDComputer, cur_s: int, cur_t: int, half_t: int, label_t: int, label1: tuple,
+                          label2: tuple, x_s_arr: list, x_c_arr: list, cap_s: int, ei_s_arr: np.ndarray) -> bool:
+    """check if backward label1 dominates backward label2, returns True if yes, False otherwise"""
+    # label: () -> (reward, visited_set)
+    half_t += 3  # half-time fix
+    reward_1, set_1, ins_1 = label1
+    reward_2, set_2, ins_2 = label2
+    step_t = label_t - 1
+    if set_1.issubset(set_2) and reward_1 >= reward_2:
+        flag = True
+        old_reward_1 = com.compute_ESD_in_horizon(
+            station_id=cur_s,
+            t_arr=label_t,
+            ins=ins_1,
+            x_s_arr=x_s_arr,
+            x_c_arr=x_c_arr,
+            mode='multi',
+            delta=True,
+            repo=True
+        )
+        old_reward_2 = com.compute_ESD_in_horizon(
+            station_id=cur_s,
+            t_arr=label_t,
+            ins=ins_2,
+            x_s_arr=x_s_arr,
+            x_c_arr=x_c_arr,
+            mode='multi',
+            delta=True,
+            repo=True
+        )
+        while step_t >= half_t:
+            if 0 <= ei_s_arr[cur_s - 1, cur_t, cur_t + step_t, x_s_arr[cur_s - 1], x_c_arr[cur_s - 1]] + ins_2 <= cap_s:
+                if 0 <= ei_s_arr[
+                    cur_s - 1, cur_t, cur_t + step_t, x_s_arr[cur_s - 1], x_c_arr[cur_s - 1]] + ins_1 <= cap_s:
+                    new_reward_1 = com.compute_ESD_in_horizon(
+                        station_id=cur_s,
+                        t_arr=step_t,
+                        ins=ins_1,
+                        x_s_arr=x_s_arr,
+                        x_c_arr=x_c_arr,
+                        mode='multi',
+                        delta=True,
+                        repo=True
+                    )
+                    new_reward_2 = com.compute_ESD_in_horizon(
+                        station_id=cur_s,
+                        t_arr=step_t,
+                        ins=ins_2,
+                        x_s_arr=x_s_arr,
+                        x_c_arr=x_c_arr,
+                        mode='multi',
+                        delta=True,
+                        repo=True
+                    )
+                    if reward_1 - old_reward_1 + new_reward_1 >= reward_2 - old_reward_2 + new_reward_2:
+                        step_t -= 1
+                    else:
+                        flag = False
+                        break
+                else:
+                    flag = False
+                    break
+            else:
+                break
+        return flag
+    else:
+        return False
+
+
 def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
                                 init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
                                 ei_c_arr: np.ndarray,
@@ -117,7 +186,7 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                 # reward_arr[t][init_loc-1][inv_id_dict[init_load]] = [(0, {init_loc})]
                 reward_arr[t][init_loc][inv_id_dict[init_load]] = [(0, {init_loc})]
                 cur_reward, cur_set = (0, {init_loc})
-                for ne in range(num_stations + 1):  # cannot stay at depot
+                for ne in range(num_stations + 1):  # can stay at depot
                     if ne == 0:
                         stay_t = 1
                         inv = inv_id_dict[init_load]
@@ -262,14 +331,19 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                                     label = reward_arr[t][cur_s][inv][label_id]
                                     # forward update
                                     cur_reward, cur_set = label
-                                    for next_s in range(1, num_stations + 1):
+                                    if cur_s == 0:
+                                        can_visit_next = list(range(num_stations + 1))
+                                    else:
+                                        can_visit_next = list(range(1, num_stations + 1))
+                                    for next_s in can_visit_next:
                                         # stay at 本站
                                         if next_s == cur_s:
                                             stay_t = 1
                                             if t + stay_t <= t_repo:
                                                 if t + stay_t < t_repo - 1 or inv_dict[
                                                     inv] == 0:  # 最后一站放空，不改变库存所以remain inv
-                                                    calcu_arr[t + stay_t][next_s - 1] = True
+                                                    if next_s > 0:
+                                                        calcu_arr[t + stay_t][next_s - 1] = True
                                                     if reward_arr[t + stay_t][next_s][inv] is None:
                                                         new_reward = cur_reward
                                                         reward_arr[t + stay_t][next_s][inv] = [(new_reward, cur_set)]
@@ -319,6 +393,7 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                                                         next_s - 1, cur_t, cur_t + t + arr_t, x_s_arr[next_s - 1],
                                                         x_c_arr[next_s - 1]] + ins <= cap_s:
                                                         calcu_arr[t + arr_t][next_s - 1] = True
+                                                        dist_cost = arr_t - 1 if cur_s != 0 else arr_t
                                                         if reward_arr[t + arr_t][next_s][next_inv] is None:
                                                             new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
                                                                 station_id=next_s,
@@ -328,7 +403,7 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                                                                 x_c_arr=x_c_arr,
                                                                 mode='multi',
                                                                 delta=True,
-                                                                repo=True) - alpha * (arr_t - 1) - dual_station_vec[
+                                                                repo=True) - alpha * dist_cost - dual_station_vec[
                                                                              next_s - 1]
                                                             reward_arr[t + arr_t][next_s][next_inv] = [
                                                                 (new_reward, cur_set | {next_s})]
@@ -343,7 +418,7 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                                                                 x_c_arr=x_c_arr,
                                                                 mode='multi',
                                                                 delta=True,
-                                                                repo=True) - alpha * (arr_t - 1) - dual_station_vec[
+                                                                repo=True) - alpha * dist_cost - dual_station_vec[
                                                                              next_s - 1]
                                                             tmp_label = [new_reward, cur_set | {next_s}]
                                                             dom_idx = []
@@ -422,6 +497,9 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
                     break
         print(loc_list)
         print(inv_list)
+
+        if 52 < max_reward < 53:
+            logging.debug('here')
 
         # delete remaining in route
         clean_route = []
@@ -1198,35 +1276,1070 @@ def get_dp_reduced_cost_numba(cap_v: int, cap_s: int, num_stations: int, init_lo
     return clearn_route_arr
 
 
-# def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
-#                                       init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
-#                                       ei_c_arr: np.ndarray, esd_arr: np.ndarray, c_mat: np.ndarray,
-#                                       cur_t: int, t_p: int, t_f: int, alpha: float,
-#                                       dual_van_vec: list, dual_station_vec: list, inventory_dict: dict = None,
-#                                       inventory_id_dict: dict = None):
-#     """calculate heuristic or exact reduced cost using bidirectional labeling algorithm"""
-#     com = ESDComputer(
-#         esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
-#     cur_t = round(cur_t - RE_START_T / 10)
-#     t_repo = t_p if RE_START_T / 10 + cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t - RE_START_T / 10)
-#     half_way_t = int(t_repo / 2)  # forward to: h(actually h-1?), backward to: h + 2(min travel distance)
-#     if t_repo == 1:
-#         return [init_loc], com.compute_ESD_in_horizon(station_id=init_loc, t_arr=0, ins=init_load, x_s_arr=x_s_arr,
-#                                                       x_c_arr=x_c_arr, mode='multi', delta=True, repo=True)
-#     elif t_repo == 0:
-#         assert False
-#     # decision inventory state
-#     inv_dict = inventory_dict if inventory_dict is not None else {0: 0, 1: 5, 2: 10, 3: 15, 4: 20, 5: 25}
-#     inv_id_dict = inventory_id_dict if inventory_id_dict is not None else {25: 5, 20: 4, 15: 3, 10: 2, 5: 1, 0: 0}
-#     inv_num = len(inv_dict)
-#     print(f'in get_dp_reduced_cost_bidirec(), t_repo = {t_repo}')
-#     reward_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
-#     trace_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
-#     calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
-#     st = time.process_time()
-#     for t in range(t_repo + 1):
-#         if
+def get_dp_reduced_cost_early_label_dominance(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
+                                              init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
+                                              ei_c_arr: np.ndarray, esd_arr: np.ndarray, c_mat: np.ndarray,
+                                              cur_t: int, t_p: int, t_f: int, alpha: float,
+                                              dual_van: int, dual_station_vec: list, inventory_dict: dict = None,
+                                              inventory_id_dict: dict = None):
+    """calculate heuristic or exact reduced cost using bidirectional labeling algorithm"""
+    com = ESDComputer(
+        esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+    cur_t = round(cur_t - RE_START_T / 10)
+    t_repo = t_p if RE_START_T / 10 + cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t - RE_START_T / 10)
+    # half_way_t = int(init_t_left + t_repo / 2)  # forward to: h(actually h-1?), backward to: h + 2(min travel distance)
+    if t_repo == 1:
+        return [init_loc], com.compute_ESD_in_horizon(station_id=init_loc, t_arr=0, ins=init_load, x_s_arr=x_s_arr,
+                                                      x_c_arr=x_c_arr, mode='multi', delta=True, repo=True)
+    elif t_repo == 0:
+        assert False
+    # decision inventory state
+    # inv_dict = inventory_dict if inventory_dict is not None else {0: 0, 1: 5, 2: 10, 3: 15, 4: 20, 5: 25}
+    # inv_id_dict = inventory_id_dict if inventory_id_dict is not None else {25: 5, 20: 4, 15: 3, 10: 2, 5: 1, 0: 0}
+    inv_dict = inventory_dict if inventory_dict is not None else {0: 0, 1: 2, 2: 4, 3: 6, 4: 8, 5: 10, 6: 12, 7: 14,
+                                                                  8: 16, 9: 18, 10: 20, 11: 22, 12: 25}
+    inv_id_dict = inventory_id_dict if inventory_id_dict is not None else {25: 12, 22: 11, 20: 10, 18: 9, 16: 8, 14: 7,
+                                                                           12: 6, 10: 5, 8: 4, 6: 3, 4: 2, 2: 1, 0: 0}
+    inv_num = len(inv_dict)
+    print(f'in get_dp_reduced_cost_bidirec(), t_repo = {t_repo}')
+    reward_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+    trace_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+    calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
+    st = time.process_time()
+    for t in range(t_repo + 1):
+        if t == init_t_left:
+            stept = time.process_time()
+            print(f't={t}, time: {stept - st}')
+            if init_loc == 0:
+                assert init_load == 0
+                reward_arr[t][init_loc][inv_id_dict[init_load]] = [(0, {init_loc})]
+                cur_reward, cur_set = 0, {init_loc}
+                for ne in range(num_stations + 1):  # can stay at the depot
+                    if ne == 0:
+                        stay_t = 1
+                        inv = inv_id_dict[init_load]
+                        if t + stay_t <= t_repo:
+                            assert reward_arr[t + stay_t][ne][inv] is None
+                            reward_arr[t + stay_t][ne][inv] = [(0, cur_set)]
+                            trace_arr[t + stay_t][ne][inv] = [(t, 0, inv, 0)]
+                    else:
+                        if ne == 11:
+                            logging.debug('debug')
+                        arr_t = round(c_mat[init_loc, ne])
+                        if t + arr_t <= t_repo:
+                            for inv in range(inv_num):
+                                ins = init_load - inv_dict[inv]
+                                if 0 <= ei_s_arr[
+                                    ne - 1, cur_t, cur_t + t + arr_t, x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_s:
+                                    calcu_arr[t + arr_t][ne - 1] = True
+                                    reward_arr[arr_t][ne][inv] = [(
+                                        ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                            station_id=ne,
+                                            t_arr=t + arr_t,
+                                            ins=ins,
+                                            x_s_arr=x_s_arr,
+                                            x_c_arr=x_c_arr,
+                                            mode='multi',
+                                            delta=True,
+                                            repo=True
+                                        ) - alpha * arr_t - dual_station_vec[ne - 1], {init_loc, ne})]
+                                    trace_arr[arr_t][ne][inv] = [
+                                        (init_t_left, init_loc, inv_id_dict[init_load], 0)]  # time-space index
+                                else:
+                                    pass
+            else:  # init_loc > 0
+                for inv in range(inv_num):  # label every inventory level
+                    ins = init_load - inv_dict[inv]
+                    if 0 <= ei_s_arr[
+                        init_loc - 1, cur_t, cur_t + t, x_s_arr[init_loc - 1], x_c_arr[init_loc - 1]] + ins <= cap_s:
+                        reward_arr[t][init_loc][inv] = [(
+                            ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                station_id=init_loc,
+                                t_arr=t,
+                                ins=ins,
+                                x_s_arr=x_s_arr,
+                                x_c_arr=x_c_arr,
+                                mode='multi',
+                                delta=True,
+                                repo=True
+                            ) - dual_station_vec[init_loc - 1], {init_loc})]
+                        cur_reward, cur_set = reward_arr[t][init_loc][inv][0]  # trace to time step 0
+                        for ne in range(1, num_stations + 1):
+                            if ne == init_loc:
+                                stay_t = 1
+                                if t + stay_t <= t_repo:
+                                    calcu_arr[t + stay_t][ne - 1] = True
+                                    assert reward_arr[t + stay_t][ne][inv] is None
+                                    new_reward = cur_reward
+                                    reward_arr[t + stay_t][ne][inv] = [(new_reward, cur_set)]
+                                    trace_arr[t + stay_t][ne][inv] = [(t, init_loc, inv, 0)]
+                            else:  # visit other stations
+                                arr_t = round(c_mat[init_loc, ne])
+                                if t + arr_t <= t_repo:
+                                    calcu_arr[t + arr_t][ne - 1] = True
+                                    for ne_inv in range(inv_num):
+                                        ins = inv_dict[inv] - inv_dict[ne_inv]
+                                        if 0 <= ei_s_arr[
+                                            ne - 1, cur_t, cur_t + t + arr_t,
+                                            x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_s:
+                                            new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                station_id=ne,
+                                                t_arr=t + arr_t,
+                                                ins=ins,
+                                                x_s_arr=x_s_arr,
+                                                x_c_arr=x_c_arr,
+                                                mode='multi',
+                                                delta=True,
+                                                repo=True) - alpha * (arr_t - 1) - dual_station_vec[ne - 1]
+                                            if reward_arr[t + arr_t][ne][ne_inv] is None:
+                                                reward_arr[t + arr_t][ne][ne_inv] = [(new_reward, {init_loc, ne})]
+                                                trace_arr[t + arr_t][ne][ne_inv] = [(t, init_loc, inv, 0)]
+                                            else:
+                                                if new_reward > reward_arr[t + arr_t][ne][ne_inv][0][0]:
+                                                    reward_arr[t + arr_t][ne][ne_inv] = [(new_reward, {init_loc, ne})]
+                                                    trace_arr[t + arr_t][ne][ne_inv] = [(t, init_loc, inv, 0)]
+        elif t > init_t_left:
+            if t == t_repo - 1:
+                stept = time.process_time()
+                print(f't={t}, time: {stept - st}')
+                break
+            else:
+                stept = time.process_time()
+                print(f't={t}, time: {stept - st}')
+                for cur_s in range(num_stations + 1):
+                    if cur_s > 0 and calcu_arr[t][cur_s - 1] is False:
+                        pass
+                    else:
+                        for inv in range(inv_num):
+                            if reward_arr[t][cur_s][inv] is None:
+                                pass
+                            else:  # select labels to extend
+                                for label_id in range(len(reward_arr[t][cur_s][inv])):
+                                    cur_reward, cur_set = reward_arr[t][cur_s][inv][label_id]
+                                    for next_s in range(1, num_stations + 1):
 
+                                        # if t == 7 and cur_s == 7 and next_s == 5 and inv == 0 and 5 in cur_set:
+                                        #     logging.debug('here')
+
+                                        if next_s == cur_s:  # stay at current station
+                                            stay_t = 1
+                                            if t + stay_t <= t_repo:
+                                                if t + stay_t < t_repo - 1 or inv_dict[inv] == 0:
+                                                    new_reward = cur_reward
+                                                    if reward_arr[t + stay_t][next_s][inv] is None:
+                                                        reward_arr[t + stay_t][next_s][inv] = [(new_reward, cur_set)]
+                                                        trace_arr[t + stay_t][next_s][inv] = [(t, cur_s, inv, label_id)]
+                                                        calcu_arr[t + stay_t][next_s - 1] = True
+                                                    else:  # dominate rules applied
+                                                        tmp_label = [new_reward, cur_set]
+                                                        dom_idx = []
+                                                        for ne_label_id in range(
+                                                                len(reward_arr[t + stay_t][next_s][inv])):
+                                                            ne_label = reward_arr[t + stay_t][next_s][inv][ne_label_id]
+                                                            if is_dominated(label1=tmp_label, label2=ne_label):
+                                                                dom_idx.append(ne_label_id)
+                                                            elif is_dominated(label1=ne_label, label2=tmp_label):
+                                                                assert not dom_idx  # dom_idx is empty
+                                                                break
+                                                        else:
+                                                            if len(dom_idx) > 0:  # with domination
+                                                                dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                # first delete
+                                                                for idx in dom_idx:
+                                                                    reward_arr[t + stay_t][next_s][inv].pop(idx)
+                                                                    trace_arr[t + stay_t][next_s][inv].pop(idx)
+                                                                # then add
+                                                                reward_arr[t + stay_t][next_s][inv].append(tmp_label)
+                                                                trace_arr[t + stay_t][next_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                                calcu_arr[t + stay_t][next_s - 1] = True
+                                                            else:
+                                                                reward_arr[t + stay_t][next_s][inv].append(tmp_label)
+                                                                trace_arr[t + stay_t][next_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                                calcu_arr[t + stay_t][next_s - 1] = True
+                                        elif next_s in cur_set:  # already visited
+                                            pass
+                                        else:
+                                            if t == 7 and cur_s == 7 and next_s == 5 and inv == 0 and 5 in cur_set:
+                                                logging.debug('here')
+                                            arr_t = round(c_mat[cur_s, next_s])
+                                            if t + arr_t <= t_repo:
+                                                if t + arr_t < t_repo - 1:
+                                                    can_do_inv = inv_num
+                                                else:
+                                                    can_do_inv = 1
+                                                for next_inv in range(can_do_inv):
+                                                    ins = inv_dict[inv] - inv_dict[next_inv]
+                                                    if 0 <= ei_s_arr[
+                                                        next_s - 1, cur_t, cur_t + t + arr_t, x_s_arr[next_s - 1],
+                                                        x_c_arr[next_s - 1]] + ins <= cap_s:
+                                                        new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                            station_id=next_s,
+                                                            t_arr=t + arr_t,
+                                                            ins=ins,
+                                                            x_s_arr=x_s_arr,
+                                                            x_c_arr=x_c_arr,
+                                                            mode='multi',
+                                                            delta=True,
+                                                            repo=True) - alpha * (arr_t - 1) - dual_station_vec[
+                                                                         next_s - 1]
+                                                        if reward_arr[t + arr_t][next_s][next_inv] is None:
+                                                            tmp_label = [new_reward, cur_set | {next_s}]
+                                                            # cannot add directly, need to check earlier domination
+                                                            ex_flag, ex_t = True, t + arr_t - 1
+                                                            while ex_t >= t:
+                                                                if reward_arr[ex_t][next_s][next_inv] is not None:
+                                                                    for ex_label_id in range(
+                                                                            len(reward_arr[ex_t][next_s][next_inv])):
+                                                                        ex_label = reward_arr[ex_t][next_s][next_inv][
+                                                                            ex_label_id]
+                                                                        if is_dominated(label1=ex_label,
+                                                                                        label2=tmp_label):
+                                                                            ex_flag = False
+                                                                            break
+                                                                if not ex_flag:
+                                                                    break
+                                                                else:
+                                                                    ex_t -= 1
+                                                            else:  # no earlier label dominates
+                                                                reward_arr[t + arr_t][next_s][next_inv] = [tmp_label]
+                                                                trace_arr[t + arr_t][next_s][next_inv] = [
+                                                                    (t, cur_s, inv, label_id)]
+                                                                calcu_arr[t + arr_t][next_s - 1] = True
+
+                                                        else:  # dominate rules applied
+                                                            tmp_label = [new_reward, cur_set | {next_s}]
+                                                            dom_idx = []
+                                                            for ne_label_id in range(
+                                                                    len(reward_arr[t + arr_t][next_s][next_inv])):
+                                                                ne_label = reward_arr[t + arr_t][next_s][next_inv][
+                                                                    ne_label_id]
+                                                                if is_dominated(label1=tmp_label, label2=ne_label):
+                                                                    dom_idx.append(ne_label_id)
+                                                                elif is_dominated(label1=ne_label, label2=tmp_label):
+                                                                    assert not dom_idx  # dom_idx is empty
+                                                                    break
+                                                            else:
+                                                                if len(dom_idx) > 0:  # with domination
+                                                                    dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                    # first delete
+                                                                    for idx in dom_idx:
+                                                                        reward_arr[t + arr_t][next_s][next_inv].pop(idx)
+                                                                        trace_arr[t + arr_t][next_s][next_inv].pop(idx)
+                                                                    # then add
+                                                                    reward_arr[t + arr_t][next_s][next_inv].append(
+                                                                        tmp_label)
+                                                                    trace_arr[t + arr_t][next_s][next_inv].append(
+                                                                        (t, cur_s, inv, label_id))
+                                                                    calcu_arr[t + arr_t][next_s - 1] = True
+                                                                # else:
+                                                                #     reward_arr[t + arr_t][next_s][next_inv].append(tmp_label)
+                                                                #     trace_arr[t + arr_t][next_s][next_inv].append((t, cur_s, inv, label_id))
+                                                                #     calcu_arr[t + arr_t][next_s - 1] = True
+                                                                else:  # no domination, need to check earlier labels
+                                                                    ex_flag, ex_t = True, t + arr_t - 1
+                                                                    while ex_t >= t:
+                                                                        if reward_arr[ex_t][next_s][
+                                                                            next_inv] is not None:
+                                                                            for ex_label_id in range(
+                                                                                    len(reward_arr[ex_t][next_s][
+                                                                                            next_inv])):
+                                                                                ex_label = \
+                                                                                    reward_arr[ex_t][next_s][next_inv][
+                                                                                        ex_label_id]
+                                                                                if is_dominated(label1=ex_label,
+                                                                                                label2=tmp_label):
+                                                                                    ex_flag = False
+                                                                                    break
+                                                                        if not ex_flag:
+                                                                            break
+                                                                        else:
+                                                                            ex_t -= 1
+                                                                    else:  # no earlier label dominates
+                                                                        reward_arr[t + arr_t][next_s][next_inv].append(
+                                                                            tmp_label)
+                                                                        trace_arr[t + arr_t][next_s][next_inv].append(
+                                                                            (t, cur_s, inv, label_id))
+                                                                        calcu_arr[t + arr_t][next_s - 1] = True
+
+    max_reward_list, max_label_list = [], []
+
+    label_length_test = []
+
+    for s in range(num_stations + 1):
+        if s == init_loc:
+            pass
+        else:
+            for inv in range(inv_num):
+                if reward_arr[t_repo][s][inv] is not None:
+                    for l_id in range(len(reward_arr[t_repo][s][inv])):
+                        max_reward_list.append(reward_arr[t_repo][s][inv][l_id][0])
+                        max_label_list.append((t_repo, s, inv, l_id))
+                        label_length_test.append(len(reward_arr[t_repo][s][inv]))
+                if reward_arr[t_repo - 1][s][inv] is not None:
+                    for l_id in range(len(reward_arr[t_repo - 1][s][inv])):
+                        max_reward_list.append(reward_arr[t_repo - 1][s][inv][l_id][0])
+                        max_label_list.append((t_repo - 1, s, inv, l_id))
+                        label_length_test.append(len(reward_arr[t_repo - 1][s][inv]))
+    if max_reward_list:
+        max_reward = max(max_reward_list)
+        print(max(max_reward_list))
+        max_label = max_label_list[max_reward_list.index(max_reward)]
+        print(reward_arr[max_label[0]][max_label[1]][max_label[2]][max_label[3]])
+        print(f'max label length: {max(label_length_test)}')
+        k_t_repo, k_s, k_inv, k_l_id = max_label
+        loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+        while True:
+            if k_t_repo == 0:
+                assert False
+            else:
+                loc_list[k_t_repo] = k_s
+                inv_list[k_t_repo] = inv_dict[k_inv]
+                k_t_repo, k_s, k_inv, k_l_id = trace_arr[k_t_repo][k_s][k_inv][k_l_id]
+                if k_t_repo == init_t_left:
+                    loc_list[k_t_repo] = k_s
+                    inv_list[k_t_repo] = inv_dict[k_inv]
+                    break
+        print(loc_list)
+        print(inv_list)
+
+        # delete remaining in route
+        clean_route = []
+        for k in loc_list:
+            if k not in clean_route and k > -0.5:
+                clean_route.append(k)
+    else:  # time is too short
+        loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+        for step in range(init_t_left, t_repo + 1):
+            loc_list[step] = init_loc
+            inv_list[step] = init_load
+        clean_route = [init_loc]
+        max_reward = 0  # can be fixed
+
+    return clean_route, max_reward
+
+
+def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
+                                      init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
+                                      ei_c_arr: np.ndarray, esd_arr: np.ndarray, c_mat: np.ndarray,
+                                      cur_t: int, t_p: int, t_f: int, alpha: float,
+                                      dual_van: int, dual_station_vec: list, inventory_dict: dict = None,
+                                      inventory_id_dict: dict = None):
+    """calculate heuristic or exact reduced cost using bidirectional labeling algorithm"""
+    com = ESDComputer(
+        esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+    cur_t = round(cur_t - RE_START_T / 10)
+    t_repo = t_p if RE_START_T / 10 + cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t - RE_START_T / 10)
+    half_way_t = int((init_t_left + t_repo) / 2 - 1)  # forward to: h, backward to: h + 3(min travel distance)
+    least_t_repo = 4  # 4
+    print(f'in get_dp_reduced_cost_bidirec(), time_left = {init_t_left}, half_way_point = {half_way_t}')
+    if t_repo == 1:
+        return [init_loc], com.compute_ESD_in_horizon(station_id=init_loc, t_arr=0, ins=init_load, x_s_arr=x_s_arr,
+                                                      x_c_arr=x_c_arr, mode='multi', delta=True, repo=True)
+    elif t_repo == 0:
+        assert False
+    # decision inventory state (with default settings)
+    inv_dict = inventory_dict if inventory_dict is not None else {0: 0, 1: 5, 2: 10, 3: 15, 4: 20, 5: 25}
+    inv_id_dict = inventory_id_dict if inventory_id_dict is not None else {25: 5, 20: 4, 15: 3, 10: 2, 5: 1, 0: 0}
+    inv_num = len(inv_dict)
+    print(f'in get_dp_reduced_cost_bidirec(), t_repo = {t_repo}')
+    for_reward_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+    for_trace_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+    for_calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
+    back_reward_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+    back_trace_arr = [[[None for _ in range(inv_num)] for __ in range(1 + num_stations)] for ___ in range(t_repo + 1)]
+    back_calcu_arr = [[False for _ in range(num_stations)] for __ in range(t_repo + 1)]
+    st = time.process_time()
+    # forward pass
+    for t in range(t_repo + 1):
+        if t == init_t_left:
+            stept = time.process_time()
+            print(f't={t}, time: {stept - st}')
+            if init_loc == 0:
+                assert init_load == 0
+                for_reward_arr[t][init_loc][inv_id_dict[init_load]] = [(0, {init_loc})]
+                cur_reward, cur_set = 0, {init_loc}
+                for ne in range(num_stations + 1):  # can stay at the depot
+                    if ne == 0:
+                        stay_t = 1
+                        inv = inv_id_dict[init_load]
+                        if t + stay_t <= t_repo:
+                            if for_reward_arr[t + stay_t][ne][inv] is None:
+                                new_reward = cur_reward
+                                for_reward_arr[t + stay_t][ne][inv] = [(new_reward, cur_set)]
+                                for_trace_arr[t + stay_t][ne][inv] = [(t, 0, inv, 0)]
+                            else:
+                                assert False
+                    else:  # visit other stations
+                        arr_t = round(c_mat[init_loc, ne])
+                        if t + arr_t <= t_repo:
+                            for inv in range(inv_num):
+                                ins = -inv_dict[inv]
+                                if 0 <= ei_s_arr[
+                                    ne - 1, cur_t, cur_t + t + arr_t, x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_s:
+                                    for_reward_arr[arr_t][ne][inv] = [(
+                                        ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                            station_id=ne,
+                                            t_arr=t + arr_t,
+                                            ins=ins,
+                                            x_s_arr=x_s_arr,
+                                            x_c_arr=x_c_arr,
+                                            mode='multi',
+                                            delta=True,
+                                            repo=True
+                                        ) - alpha * arr_t - dual_station_vec[ne - 1], {init_loc, ne})]
+                                    for_trace_arr[arr_t][ne][inv] = [
+                                        (init_t_left, init_loc, inv_id_dict[init_load], 0)]  # time-space index
+                                    for_calcu_arr[arr_t][ne - 1] = True
+                                else:
+                                    pass
+            else:  # init_loc > 0
+                for inv in range(inv_num):  # label every inventory level at initial point
+                    ins = init_load - inv_dict[inv]
+                    if 0 <= ei_s_arr[
+                        init_loc - 1, cur_t, cur_t + t, x_s_arr[init_loc - 1], x_c_arr[init_loc - 1]] + ins <= cap_s:
+                        for_reward_arr[t][init_loc][inv] = [(
+                            ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                station_id=init_loc,
+                                t_arr=t,
+                                ins=ins,
+                                x_s_arr=x_s_arr,
+                                x_c_arr=x_c_arr,
+                                mode='multi',
+                                delta=True,
+                                repo=True
+                            ) - dual_station_vec[init_loc - 1], {init_loc})]
+                        cur_reward, cur_set = for_reward_arr[t][init_loc][inv][0]  # trace to time step 0
+                        for ne in range(1, num_stations + 1):
+                            if ne == init_loc:
+                                stay_t = 1
+                                if t + stay_t <= t_repo:
+                                    if for_reward_arr[t + stay_t][ne][inv] is None:
+                                        new_reward = cur_reward
+                                        for_reward_arr[t + stay_t][ne][inv] = [(new_reward, cur_set)]
+                                        for_trace_arr[t + stay_t][ne][inv] = [(t, init_loc, inv, 0)]
+                                        for_calcu_arr[t + stay_t][ne - 1] = True
+                                    else:  # dominate rules applied
+                                        new_reward = cur_reward
+                                        tmp_label = (new_reward, cur_set)
+                                        dom_idx = []
+                                        for ne_label_id in range(
+                                                len(for_reward_arr[t + stay_t][ne][inv])):
+                                            ne_label = for_reward_arr[t + stay_t][ne][inv][ne_label_id]
+                                            if is_dominated(label1=tmp_label, label2=ne_label):
+                                                dom_idx.append(ne_label_id)
+                                            elif is_dominated(label1=ne_label, label2=tmp_label):
+                                                assert not dom_idx  # dom_idx is empty
+                                                break
+                                        else:
+                                            if len(dom_idx) == 0:  # no domination
+                                                for_reward_arr[t + stay_t][ne][inv].append(tmp_label)
+                                                for_trace_arr[t + stay_t][ne][inv].append((t, init_loc, inv, 0))
+                                                for_calcu_arr[t + stay_t][ne - 1] = True
+                                            else:
+                                                dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                # first delete
+                                                for idx in dom_idx:
+                                                    for_reward_arr[t + stay_t][ne][inv].pop(idx)
+                                                    for_trace_arr[t + stay_t][ne][inv].pop(idx)
+                                                # then add
+                                                for_reward_arr[t + stay_t][ne][inv].append(tmp_label)
+                                                for_trace_arr[t + stay_t][ne][inv].append((t, init_loc, inv, 0))
+                                                for_calcu_arr[t + stay_t][ne - 1] = True
+                            else:  # visit other stations
+                                arr_t = round(c_mat[init_loc, ne])
+                                if t + arr_t <= t_repo:
+                                    for ne_inv in range(inv_num):
+                                        ins = inv_dict[inv] - inv_dict[ne_inv]
+                                        if 0 <= ei_s_arr[ne - 1, cur_t, cur_t + t + arr_t, x_s_arr[ne - 1], x_c_arr[
+                                            ne - 1]] + ins <= cap_s:
+                                            new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                station_id=ne,
+                                                t_arr=t + arr_t,
+                                                ins=ins,
+                                                x_s_arr=x_s_arr,
+                                                x_c_arr=x_c_arr,
+                                                mode='multi',
+                                                delta=True,
+                                                repo=True
+                                            ) - alpha * (arr_t - 1) - dual_station_vec[ne - 1]
+                                            if for_reward_arr[t + arr_t][ne][ne_inv] is None:
+                                                for_reward_arr[t + arr_t][ne][ne_inv] = [(new_reward, {init_loc, ne})]
+                                                for_trace_arr[t + arr_t][ne][ne_inv] = [(t, init_loc, inv, 0)]
+                                                for_calcu_arr[t + arr_t][ne - 1] = True
+                                            else:
+                                                if new_reward > for_reward_arr[t + arr_t][ne][ne_inv][0][0]:
+                                                    for_reward_arr[t + arr_t][ne][ne_inv] = [
+                                                        (new_reward, {init_loc, ne})]
+                                                    for_trace_arr[t + arr_t][ne][ne_inv] = [(t, init_loc, inv, 0)]
+                                                    for_calcu_arr[t + arr_t][ne - 1] = True
+                                                else:
+                                                    pass
+        elif t > init_t_left:
+            if t == t_repo - 1:
+                stept = time.process_time()
+                print(f't={t}, time: {stept - st}')
+                break
+            else:
+                stept = time.process_time()
+                print(f't={t}, time: {stept - st}')
+                for cur_s in range(num_stations + 1):
+                    if cur_s > 0 and for_calcu_arr[t][cur_s - 1] is False:
+                        pass
+                    else:
+                        for inv in range(inv_num):
+                            if for_reward_arr[t][cur_s][inv] is None:
+                                pass
+                            else:  # select labels to extend
+                                for label_id in range(len(for_reward_arr[t][cur_s][inv])):
+                                    cur_reward, cur_set = for_reward_arr[t][cur_s][inv][label_id]
+                                    if cur_s == 0:
+                                        can_visit_next = list(range(num_stations + 1))
+                                    else:
+                                        can_visit_next = list(range(1, num_stations + 1))
+                                    for next_s in can_visit_next:  # stay at current
+                                        if next_s == cur_s:
+                                            stay_t = 1
+                                            if t + stay_t <= t_repo:
+                                                if t + stay_t < t_repo - 1 or inv_dict[inv] == 0:
+                                                    new_reward = cur_reward
+                                                    if for_reward_arr[t + stay_t][next_s][inv] is None:
+                                                        for_reward_arr[t + stay_t][next_s][inv] = [
+                                                            (new_reward, cur_set)]
+                                                        for_trace_arr[t + stay_t][next_s][inv] = [
+                                                            (t, cur_s, inv, label_id)]
+                                                        for_calcu_arr[t + stay_t][next_s - 1] = True
+                                                    else:  # dominate rules applied
+                                                        tmp_label = (new_reward, cur_set)
+                                                        dom_idx = []
+                                                        for ne_label_id in range(
+                                                                len(for_reward_arr[t + stay_t][next_s][inv])):
+                                                            ne_label = for_reward_arr[t + stay_t][next_s][inv][
+                                                                ne_label_id]
+                                                            if is_dominated(label1=tmp_label, label2=ne_label):
+                                                                dom_idx.append(ne_label_id)
+                                                            elif is_dominated(label1=ne_label, label2=tmp_label):
+                                                                assert not dom_idx  # dom_idx is empty
+                                                                break
+                                                        else:
+                                                            if len(dom_idx) == 0:  # no domination
+                                                                for_reward_arr[t + stay_t][next_s][inv].append(
+                                                                    tmp_label)
+                                                                for_trace_arr[t + stay_t][next_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                                for_calcu_arr[t + stay_t][next_s - 1] = True
+                                                            else:
+                                                                dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                # first delete
+                                                                for idx in dom_idx:
+                                                                    for_reward_arr[t + stay_t][next_s][inv].pop(idx)
+                                                                    for_trace_arr[t + stay_t][next_s][inv].pop(idx)
+                                                                # then add
+                                                                for_reward_arr[t + stay_t][next_s][inv].append(
+                                                                    tmp_label)
+                                                                for_trace_arr[t + stay_t][next_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                                for_calcu_arr[t + stay_t][next_s - 1] = True
+                                        elif next_s in cur_set:  # already visited
+                                            pass
+                                        else:
+                                            arr_t = round(c_mat[cur_s, next_s])
+                                            if t + arr_t <= t_repo:
+                                                if t + arr_t < t_repo - 1:
+                                                    can_do_inv = inv_num
+                                                else:
+                                                    can_do_inv = 1
+                                                for next_inv in range(can_do_inv):
+                                                    ins = inv_dict[inv] - inv_dict[next_inv]
+                                                    if 0 <= ei_s_arr[
+                                                        next_s - 1, cur_t, cur_t + t + arr_t, x_s_arr[next_s - 1],
+                                                        x_c_arr[next_s - 1]] + ins <= cap_s:
+                                                        dist_cost = arr_t - 1 if cur_s != 0 else arr_t
+                                                        new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                            station_id=next_s,
+                                                            t_arr=t + arr_t,
+                                                            ins=ins,
+                                                            x_s_arr=x_s_arr,
+                                                            x_c_arr=x_c_arr,
+                                                            mode='multi',
+                                                            delta=True,
+                                                            repo=True) - alpha * dist_cost - dual_station_vec[
+                                                                         next_s - 1]
+                                                        if for_reward_arr[t + arr_t][next_s][next_inv] is None:
+                                                            for_reward_arr[t + arr_t][next_s][next_inv] = [
+                                                                (new_reward, cur_set | {next_s})]
+                                                            for_trace_arr[t + arr_t][next_s][next_inv] = [
+                                                                (t, cur_s, inv, label_id)]
+                                                            for_calcu_arr[t + arr_t][next_s - 1] = True
+                                                        else:  # dominate rules applied
+                                                            tmp_label = (new_reward, cur_set | {next_s})
+                                                            dom_idx = []
+                                                            for ne_label_id in range(
+                                                                    len(for_reward_arr[t + arr_t][next_s][next_inv])):
+                                                                ne_label = for_reward_arr[t + arr_t][next_s][next_inv][
+                                                                    ne_label_id]
+                                                                if is_dominated(label1=tmp_label, label2=ne_label):
+                                                                    dom_idx.append(ne_label_id)
+                                                                elif is_dominated(label1=ne_label, label2=tmp_label):
+                                                                    assert not dom_idx  # dom_idx is empty
+                                                                    break
+                                                            else:
+                                                                if len(dom_idx) == 0:  # no domination
+                                                                    for_reward_arr[t + arr_t][next_s][next_inv].append(
+                                                                        tmp_label)
+                                                                    for_trace_arr[t + arr_t][next_s][next_inv].append(
+                                                                        (t, cur_s, inv, label_id))
+                                                                    for_calcu_arr[t + arr_t][next_s - 1] = True
+                                                                else:
+                                                                    dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                    # first delete
+                                                                    for idx in dom_idx:
+                                                                        for_reward_arr[t + arr_t][next_s][next_inv].pop(
+                                                                            idx)
+                                                                        for_trace_arr[t + arr_t][next_s][next_inv].pop(
+                                                                            idx)
+                                                                    # then add
+                                                                    for_reward_arr[t + arr_t][next_s][next_inv].append(
+                                                                        tmp_label)
+                                                                    for_trace_arr[t + arr_t][next_s][next_inv].append(
+                                                                        (t, cur_s, inv, label_id))
+                                                                    for_calcu_arr[t + arr_t][next_s - 1] = True
+            if t_repo > least_t_repo:
+                if t == half_way_t:
+                    break
+    ed = time.process_time()
+    print(f'forward pass finished, time: {ed - st}')
+    if t_repo > least_t_repo:
+        st = time.process_time()
+        # backward pass
+        for t in range(t_repo, -1, -1):
+            ed = time.process_time()
+            print(f't={t}, time: {ed - st}')
+            if t == t_repo:
+                for last in range(1, num_stations + 1):
+                    for inv in range(inv_num):
+                        best_reward, best_last_inv, best_ins = -np.inf, None, None
+                        # for end_inv in range(int(VEH_CAP / 2 + 1)):
+                        for end_inv in inv_dict.values():
+                            ins = inv_dict[inv] - end_inv
+                            if 0 <= ei_s_arr[
+                                last - 1, cur_t, cur_t + t, x_s_arr[last - 1], x_c_arr[last - 1]] + ins <= cap_s:
+                                new_reward = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                    station_id=last,
+                                    t_arr=t,
+                                    ins=ins,
+                                    x_s_arr=x_s_arr,
+                                    x_c_arr=x_c_arr,
+                                    mode='multi',
+                                    delta=True,
+                                    repo=True) - dual_station_vec[last - 1]
+                                if new_reward > best_reward:
+                                    best_reward = new_reward
+                                    best_last_inv = end_inv
+                                    best_ins = ins
+                        back_reward_arr[t][last][inv] = [(best_reward, {last}, best_ins)]
+                        back_trace_arr[t][last][inv] = [(-1, -1, best_last_inv, -1)]
+                        # current values
+                        cur_reward, cur_set = best_reward, {last}
+                        # forward extend
+                        for la in range(1, num_stations + 1):  # trace backward
+                            if la == last:
+                                stay_t = 1
+                                if t - stay_t >= half_way_t + 3:  # (half_way_t + 1) + (minimum travel distance)
+                                    if 0 <= ei_s_arr[
+                                        last - 1, cur_t, cur_t + t - stay_t, x_s_arr[last - 1], x_c_arr[last - 1]] + \
+                                            best_ins <= cap_s:
+                                        new_reward = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                            station_id=last,
+                                            t_arr=t - stay_t,
+                                            ins=best_ins,
+                                            x_s_arr=x_s_arr,
+                                            x_c_arr=x_c_arr,
+                                            mode='multi',
+                                            delta=True,
+                                            repo=True) - dual_station_vec[la - 1]
+                                        assert back_reward_arr[t - stay_t][la][inv] is None
+                                        back_reward_arr[t - stay_t][la][inv] = [(new_reward, {last}, best_ins)]
+                                        back_trace_arr[t - stay_t][la][inv] = [(t, last, inv, 0)]
+                                        back_calcu_arr[t - stay_t][la - 1] = True
+                            else:
+                                arr_t = round(c_mat[la, last])
+                                if t - arr_t >= half_way_t + 3:
+                                    for la_inv in range(inv_num):
+                                        ins = inv_dict[la_inv] - inv_dict[inv]
+                                        if 0 <= ei_s_arr[
+                                            la - 1, cur_t, cur_t + t - arr_t, x_s_arr[la - 1], x_c_arr[
+                                                la - 1]] + ins <= cap_s:
+                                            new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                station_id=la,
+                                                t_arr=t - arr_t,
+                                                ins=ins,
+                                                x_s_arr=x_s_arr,
+                                                x_c_arr=x_c_arr,
+                                                mode='multi',
+                                                delta=True,
+                                                repo=True) - alpha * (arr_t - 1) - dual_station_vec[la - 1]
+                                            if back_reward_arr[t - arr_t][la][la_inv] is None:
+                                                back_reward_arr[t - arr_t][la][la_inv] = [(new_reward, {la, last}, ins)]
+                                                back_trace_arr[t - arr_t][la][la_inv] = [(t, last, inv, 0)]
+                                                back_calcu_arr[t - arr_t][la - 1] = True
+                                            else:  # dominate rules applied
+                                                tmp_label = (new_reward, {la, last}, ins)
+                                                dom_idx = []
+                                                for la_label_id in range(len(back_trace_arr[t - arr_t][la][la_inv])):
+                                                    la_label = back_reward_arr[t - arr_t][la][la_inv][la_label_id]
+                                                    if is_backward_dominated(com=com, cur_s=la, cur_t=cur_t,
+                                                                             half_t=half_way_t,
+                                                                             label_t=t - arr_t, label1=tmp_label,
+                                                                             label2=la_label,
+                                                                             x_s_arr=x_s_arr, x_c_arr=x_c_arr, cap_s=cap_s,
+                                                                             ei_s_arr=ei_s_arr):
+                                                        dom_idx.append(la_label_id)
+                                                    elif is_backward_dominated(com=com, cur_s=la, cur_t=cur_t,
+                                                                               half_t=half_way_t,
+                                                                               label_t=t - arr_t, label1=la_label,
+                                                                               label2=tmp_label,
+                                                                               x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                               cap_s=cap_s,
+                                                                               ei_s_arr=ei_s_arr):
+                                                        assert not dom_idx  # dom_idx is empty
+                                                        break
+                                                else:
+                                                    if len(dom_idx) == 0:  # no domination
+                                                        back_reward_arr[t - arr_t][la][la_inv].append(tmp_label)
+                                                        assert len(back_reward_arr[t][last][inv]) == 1
+                                                        back_trace_arr[t - arr_t][la][la_inv].append((t, last, inv, 0))
+                                                        back_calcu_arr[t - arr_t][la - 1] = True
+                                                    else:
+                                                        dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                        # first delete
+                                                        for idx in dom_idx:
+                                                            back_reward_arr[t - arr_t][la][la_inv].pop(idx)
+                                                            back_trace_arr[t - arr_t][la][la_inv].pop(idx)
+                                                        # then add
+                                                        back_reward_arr[t - arr_t][la][la_inv].append(tmp_label)
+                                                        assert len(back_reward_arr[t][last][inv]) == 1
+                                                        back_trace_arr[t - arr_t][la][la_inv].append((t, last, inv, 0))
+                                                        back_calcu_arr[t - arr_t][la - 1] = True
+            else:  # t < t_repo
+                for cur_s in range(1, num_stations + 1):
+                    if back_calcu_arr[t][cur_s - 1] is False:
+                        pass
+                    else:
+                        for inv in range(inv_num):
+                            if back_reward_arr[t][cur_s][inv] is None:
+                                pass
+                            else:
+                                for label_id in range(len(back_reward_arr[t][cur_s][inv])):
+                                    cur_reward, cur_set, cur_ins = back_reward_arr[t][cur_s][inv][label_id]
+                                    for last_s in range(1, num_stations + 1):
+                                        if last_s == cur_s:  # stay at current station
+                                            stay_t = 1
+                                            if t - stay_t >= half_way_t + 3:
+                                                if 0 <= ei_s_arr[
+                                                    last_s - 1, cur_t, cur_t + t - stay_t, x_s_arr[last_s - 1], x_c_arr[
+                                                        last_s - 1]] + cur_ins <= cap_s:
+                                                    old_repo_reward = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                        station_id=last_s,
+                                                        t_arr=t,
+                                                        ins=cur_ins,
+                                                        x_s_arr=x_s_arr,
+                                                        x_c_arr=x_c_arr,
+                                                        mode='multi',
+                                                        delta=True,
+                                                        repo=True)
+                                                    new_repo_reward = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                        station_id=last_s,
+                                                        t_arr=t - stay_t,
+                                                        ins=cur_ins,
+                                                        x_s_arr=x_s_arr,
+                                                        x_c_arr=x_c_arr,
+                                                        mode='multi',
+                                                        delta=True,
+                                                        repo=True)
+                                                    new_reward = cur_reward - old_repo_reward + new_repo_reward
+                                                    if back_reward_arr[t - stay_t][last_s][inv] is None:
+                                                        back_reward_arr[t - stay_t][last_s][inv] = [
+                                                            (new_reward, cur_set, cur_ins)]
+                                                        back_trace_arr[t - stay_t][last_s][inv] = [
+                                                            (t, cur_s, inv, label_id)]
+                                                        back_calcu_arr[t - stay_t][last_s - 1] = True
+                                                    else:  # dominate rules applied
+                                                        tmp_label = (new_reward, cur_set, cur_ins)
+                                                        dom_idx = []
+                                                        for last_label_id in range(
+                                                                len(back_reward_arr[t - stay_t][last_s][inv])):
+                                                            la_label = back_reward_arr[t - stay_t][last_s][inv][
+                                                                last_label_id]
+                                                            if is_backward_dominated(com=com, cur_s=last_s, cur_t=cur_t,
+                                                                                     half_t=half_way_t,
+                                                                                     label_t=t - stay_t, label1=tmp_label,
+                                                                                     label2=la_label,
+                                                                                     x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                                     cap_s=cap_s,
+                                                                                     ei_s_arr=ei_s_arr):
+                                                                dom_idx.append(last_label_id)
+                                                            elif is_backward_dominated(com=com, cur_s=last_s, cur_t=cur_t,
+                                                                                       half_t=half_way_t,
+                                                                                       label_t=t - stay_t, label1=la_label,
+                                                                                       label2=tmp_label,
+                                                                                       x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                                       cap_s=cap_s,
+                                                                                       ei_s_arr=ei_s_arr):
+                                                                assert not dom_idx
+                                                                break
+                                                        else:
+                                                            if len(dom_idx) == 0:  # no domination
+                                                                back_reward_arr[t - stay_t][last_s][inv].append(tmp_label)
+                                                                back_trace_arr[t - stay_t][last_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                                back_calcu_arr[t - stay_t][last_s - 1] = True
+                                                            else:
+                                                                dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                # first delete
+                                                                for idx in dom_idx:
+                                                                    back_reward_arr[t - stay_t][last_s][inv].pop(idx)
+                                                                    back_trace_arr[t - stay_t][last_s][inv].pop(idx)
+                                                                # then add
+                                                                back_reward_arr[t - stay_t][last_s][inv].append(tmp_label)
+                                                                back_trace_arr[t - stay_t][last_s][inv].append(
+                                                                    (t, cur_s, inv, label_id))
+                                                                back_calcu_arr[t - stay_t][last_s - 1] = True
+                                        elif last_s in cur_set:  # already visited
+                                            pass
+                                        else:
+                                            arr_t = round(c_mat[last_s, cur_s])
+                                            if t - arr_t >= half_way_t + 3:
+                                                for last_inv in range(inv_num):
+                                                    ins = inv_dict[last_inv] - inv_dict[inv]
+                                                    if 0 <= ei_s_arr[
+                                                        last_s - 1, cur_t, cur_t + t - arr_t, x_s_arr[last_s - 1],
+                                                        x_c_arr[last_s - 1]] + ins <= cap_s:
+                                                        new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                            station_id=last_s,
+                                                            t_arr=t - arr_t,
+                                                            ins=ins,
+                                                            x_s_arr=x_s_arr,
+                                                            x_c_arr=x_c_arr,
+                                                            mode='multi',
+                                                            delta=True,
+                                                            repo=True) - alpha * (arr_t - 1) - dual_station_vec[last_s - 1]
+                                                        if back_reward_arr[t - arr_t][last_s][last_inv] is None:
+                                                            back_reward_arr[t - arr_t][last_s][last_inv] = [
+                                                                (new_reward, cur_set | {last_s}, ins)]
+                                                            back_trace_arr[t - arr_t][last_s][last_inv] = [
+                                                                (t, cur_s, inv, label_id)]
+                                                            back_calcu_arr[t - arr_t][last_s - 1] = True
+                                                        else:  # dominate rules applied
+                                                            tmp_label = (new_reward, cur_set | {last_s}, ins)
+                                                            dom_idx = []
+                                                            for last_label_id in range(
+                                                                    len(back_reward_arr[t - arr_t][last_s][last_inv])):
+                                                                la_label = back_reward_arr[t - arr_t][last_s][last_inv][
+                                                                    last_label_id]
+                                                                if is_backward_dominated(com=com, cur_s=last_s, cur_t=cur_t,
+                                                                                         half_t=half_way_t,
+                                                                                         label_t=t - arr_t,
+                                                                                         label1=tmp_label,
+                                                                                         label2=la_label,
+                                                                                         x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                                         cap_s=cap_s,
+                                                                                         ei_s_arr=ei_s_arr):
+                                                                    dom_idx.append(last_label_id)
+                                                                elif is_backward_dominated(com=com, cur_s=last_s,
+                                                                                           cur_t=cur_t,
+                                                                                           half_t=half_way_t,
+                                                                                           label_t=t - arr_t,
+                                                                                           label1=la_label,
+                                                                                           label2=tmp_label,
+                                                                                           x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                                           cap_s=cap_s,
+                                                                                           ei_s_arr=ei_s_arr):
+                                                                    assert not dom_idx
+                                                                    break
+                                                            else:
+                                                                if len(dom_idx) == 0:  # no domination
+                                                                    back_reward_arr[t - arr_t][last_s][last_inv].append(
+                                                                        tmp_label)
+                                                                    back_trace_arr[t - arr_t][last_s][last_inv].append(
+                                                                        (t, cur_s, inv, label_id))
+                                                                    back_calcu_arr[t - arr_t][last_s - 1] = True
+                                                                else:
+                                                                    dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
+                                                                    # first delete
+                                                                    for idx in dom_idx:
+                                                                        back_reward_arr[t - arr_t][last_s][last_inv].pop(
+                                                                            idx)
+                                                                        back_trace_arr[t - arr_t][last_s][last_inv].pop(idx)
+                                                                    # then add
+                                                                    back_reward_arr[t - arr_t][last_s][last_inv].append(
+                                                                        tmp_label)
+                                                                    back_trace_arr[t - arr_t][last_s][last_inv].append(
+                                                                        (t, cur_s, inv, label_id))
+                                                                    back_calcu_arr[t - arr_t][last_s - 1] = True
+                if t == half_way_t + 2:
+                    break
+        ed = time.process_time()
+        print(f'backward pass finished, time: {ed - st}')
+
+        st = time.process_time()
+        # # label count
+        # count = 0
+        # for count_t in range(half_way_t + 1, t_repo + 1):
+        #     print(f'count_t={count_t}, count={count}')
+        #     for s in range(num_stations + 1):
+        #         for inv in range(inv_num):
+        #             if count_t == 11 and for_reward_arr[count_t][s][inv] is not None:
+        #                 logging.debug(f'count_t={count_t}, count={count}')
+        #             count += (len(for_reward_arr[count_t][s][inv]) if for_reward_arr[count_t][s][inv] is not None else 0)
+        # print(f'count={count}')
+        # join
+        max_rewards = []
+        max_labels = []
+        for for_t in range(half_way_t + 1, t_repo + 1):
+            for s in range(num_stations + 1):
+                if s == 0:
+                    if for_reward_arr[for_t][s][0] is not None:
+                        for for_label_id in range(len(for_reward_arr[for_t][s][0])):
+                            for_label = for_reward_arr[for_t][s][0][for_label_id]
+                            for back_s in range(num_stations + 1):
+                                if back_s == 0:  # stay at current station
+                                    max_rewards.append(for_label[0])
+                                    max_labels.append(((for_t, s, 0, for_label_id), (for_t, s, 0, for_label_id)))
+                                else:
+                                    if back_s not in for_label[1]:
+                                        for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
+                                            if back_reward_arr[back_t][back_s][0] is not None:
+                                                for back_label_id in range(len(back_reward_arr[back_t][back_s][0])):
+                                                    back_label = back_reward_arr[back_t][back_s][0][back_label_id]
+                                                    if back_label[0] > 0 and len(for_label[1].intersection(back_label[1])) == 0:
+                                                    # if len(for_label[1].intersection(back_label[1])) == 0:
+                                                        max_rewards.append(
+                                                            for_label[0] + back_label[0] - alpha * round(c_mat[s, back_s]))
+                                                        max_labels.append(((for_t, s, 0, for_label_id), (back_t, back_s, 0, back_label_id)))
+                else:  # s > 0
+                    for inv in range(inv_num):
+                        if for_reward_arr[for_t][s][inv] is not None:
+                            for for_label_id in range(len(for_reward_arr[for_t][s][inv])):
+                                for_label = for_reward_arr[for_t][s][inv][for_label_id]
+                                for back_s in range(num_stations + 1):
+                                    if back_s == 0:
+                                        max_rewards.append(for_label[0])
+                                        max_labels.append(((for_t, s, inv, for_label_id), (for_t, s, inv, for_label_id)))
+                                    else:
+                                        if back_s not in for_label[1]:
+                                            for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
+                                                if back_reward_arr[back_t][back_s][inv] is not None:
+                                                    for back_label_id in range(len(back_reward_arr[back_t][back_s][inv])):
+                                                        back_label = back_reward_arr[back_t][back_s][inv][back_label_id]
+                                                        if back_label[0] > 0 and len(for_label[1].intersection(back_label[1])) == 0:
+                                                            max_rewards.append(
+                                                                for_label[0] + back_label[0] - alpha * (round(c_mat[s, back_s]) - 1))
+                                                            max_labels.append(((for_t, s, inv, for_label_id), (back_t, back_s, inv, back_label_id)))
+    else:  # with no backward labeling
+        max_reward_list, max_label_list = [], []
+        label_length_test = []
+        for s in range(num_stations + 1):
+            if s == init_loc:
+                pass
+            else:
+                for inv in range(inv_num):
+                    if for_reward_arr[t_repo][s][inv] is not None:
+                        for l_id in range(len(for_reward_arr[t_repo][s][inv])):
+                            max_reward_list.append(for_reward_arr[t_repo][s][inv][l_id][0])
+                            max_label_list.append((t_repo, s, inv, l_id))
+                            label_length_test.append(len(for_reward_arr[t_repo][s][inv]))
+                    if for_reward_arr[t_repo - 1][s][inv] is not None:
+                        for l_id in range(len(for_reward_arr[t_repo - 1][s][inv])):
+                            max_reward_list.append(for_reward_arr[t_repo - 1][s][inv][l_id][0])
+                            max_label_list.append((t_repo - 1, s, inv, l_id))
+                            label_length_test.append(len(for_reward_arr[t_repo - 1][s][inv]))
+        if max_reward_list:
+            max_reward = max(max_reward_list)
+            print(max(max_reward_list))
+            max_label = max_label_list[max_reward_list.index(max_reward)]
+            print(for_reward_arr[max_label[0]][max_label[1]][max_label[2]][max_label[3]])
+            k_t_repo, k_s, k_inv, k_l_id = max_label
+            loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+            while True:
+                if k_t_repo == 0:
+                    assert False
+                else:
+                    loc_list[k_t_repo] = k_s
+                    inv_list[k_t_repo] = inv_dict[k_inv]
+                    k_t_repo, k_s, k_inv, k_l_id = for_trace_arr[k_t_repo][k_s][k_inv][k_l_id]
+                    if k_t_repo == init_t_left:
+                        loc_list[k_t_repo] = k_s
+                        inv_list[k_t_repo] = inv_dict[k_inv]
+                        break
+            print(loc_list)
+            print(inv_list)
+
+            # delete remaining in route
+            clean_route = []
+            for k in loc_list:
+                if k not in clean_route and k > -0.5:
+                    clean_route.append(k)
+        else:  # time is too short
+            loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+            for step in range(init_t_left, t_repo + 1):
+                loc_list[step] = init_loc
+                inv_list[step] = init_load
+            clean_route = [init_loc]
+            max_reward = 0  # can be fixed
+
+        return clean_route, max_reward
+
+    max_val = max(max_rewards)
+    max_val_idx = max_rewards.index(max_val)
+    ed = time.process_time()
+    print(f'join pass finished, time: {ed - st}')
+    # get clean routes
+    # forward
+    k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][0]
+    loc_list, inv_list = [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
+    while True:
+        if k_t_repo == 0:
+            assert False
+        else:
+            loc_list[k_t_repo] = k_s
+            inv_list[k_t_repo] = inv_dict[k_inv]
+            k_t_repo, k_s, k_inv, k_label_id = for_trace_arr[k_t_repo][k_s][k_inv][k_label_id]
+            if k_t_repo == init_t_left:
+                loc_list[k_t_repo] = k_s
+                inv_list[k_t_repo] = inv_dict[k_inv]
+                break
+    # backward
+    k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][1]
+    while True:
+        loc_list[k_t_repo] = k_s
+        inv_list[k_t_repo] = inv_dict[k_inv] - back_reward_arr[k_t_repo][k_s][k_inv][k_label_id][2]
+        k_t_repo, k_s, k_inv, k_label_id = back_trace_arr[k_t_repo][k_s][k_inv][k_label_id]
+        if k_t_repo >= 0:
+            if k_t_repo == t_repo:
+                loc_list[k_t_repo] = k_s
+                inv_list[k_t_repo] = inv_dict[k_inv] - back_reward_arr[k_t_repo][k_s][k_inv][k_label_id][2]
+                break
+        else:
+            break
+
+    print(loc_list)
+    print(inv_list)
+
+    # delete remaining in route
+    clean_route = []
+    for k in loc_list:
+        if k not in clean_route and k > -0.5:
+            clean_route.append(k)
+
+    if 87 < max_val < 88:
+        logging.debug('here.')
+
+    print(f'max_reward_length={len(max_rewards)}')
+    print(f'max_val: {max_val}')
+
+    return clean_route, max_val
 
 
 def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init_loc: list, init_load: list,
@@ -1741,8 +2854,50 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
                 dual_station_vec[van_location[i] - 1] = 1000  # avoid visiting the same station
         for node in visited_stations:
             dual_station_vec[node - 1] = 1000  # avoid visiting the same station
-        route, profit = get_dp_reduced_cost_forward(
-            cap_v=c_v,
+        # for i in list({0, 1, 16, 19, 5, 6, 12}):
+        #     if i != 0:
+        #         dual_station_vec[i-1] = 1000
+        # route, profit = get_dp_reduced_cost_forward(
+        #     cap_v=c_v,
+        #     cap_s=c_s,
+        #     num_stations=num_stations,
+        #     init_loc=van_location[veh],
+        #     init_t_left=van_dis_left[veh],
+        #     init_load=van_load[veh],
+        #     x_s_arr=x_s_arr,
+        #     x_c_arr=x_c_arr,
+        #     ei_s_arr=ei_s_arr,
+        #     ei_c_arr=ei_c_arr,
+        #     esd_arr=esd_arr,
+        #     c_mat=c_mat,
+        #     cur_t=cur_t,
+        #     t_p=t_p,
+        #     t_f=t_f,
+        #     t_roll=t_roll,
+        #     alpha=alpha,
+        #     dual_van_vec=[0],
+        #     dual_station_vec=dual_station_vec,
+        # )
+        # route, profit = get_dp_reduced_cost_early_label_dominance(
+        #     cap_s=c_s,
+        #     num_stations=num_stations,
+        #     init_loc=van_location[veh],
+        #     init_t_left=van_dis_left[veh],
+        #     init_load=van_load[veh],
+        #     x_s_arr=x_s_arr,
+        #     x_c_arr=x_c_arr,
+        #     ei_s_arr=ei_s_arr,
+        #     ei_c_arr=ei_c_arr,
+        #     esd_arr=esd_arr,
+        #     c_mat=c_mat,
+        #     cur_t=cur_t,
+        #     t_p=t_p,
+        #     t_f=t_f,
+        #     alpha=alpha,
+        #     dual_van=0,
+        #     dual_station_vec=dual_station_vec,
+        # )
+        route, profit = get_dp_reduced_cost_bidirectional(
             cap_s=c_s,
             num_stations=num_stations,
             init_loc=van_location[veh],
@@ -1757,10 +2912,9 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
             cur_t=cur_t,
             t_p=t_p,
             t_f=t_f,
-            t_roll=t_roll,
             alpha=alpha,
-            dual_van_vec=[0],
-            dual_station_vec=dual_station_vec,
+            dual_van=0,
+            dual_station_vec=dual_station_vec
         )
         for i in route:
             if i != van_location[veh]:

@@ -95,6 +95,12 @@ class ESDComputer:
                     round(self.t_cur + t_arr) if round(self.t_cur + t_arr) < 49 else 48,
                     x_s_arr[station_id - 1],
                     x_c_arr[station_id - 1]]
+                assert round(self.ei_s_arr[
+                              station_id - 1,
+                              self.t_cur,
+                              (round(self.t_cur + t_arr)) if (round(self.t_cur + t_arr)) < 49 else 48,
+                              x_s_arr[station_id - 1],
+                              x_c_arr[station_id - 1]] + ins) >= 0
                 after_val = self.esd_arr[
                     station_id - 1,
                     round(self.t_cur + t_arr) if round(self.t_cur + t_arr) < 36 else 35,
@@ -422,10 +428,13 @@ class ESDComputer:
                                                     ins = inv - next_inv
                                                     if 0 <= self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + t + arr_t,
                                                     x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_station:
+
+                                                        dist_cost = arr_t - 1 if route[cur_s] != 0 else arr_t
+
                                                         new_reward = cur_reward + ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                                             station_id=ne, t_arr=t + arr_t, ins=ins, x_s_arr=x_s_arr,
-                                                            x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * (
-                                                                             arr_t - 1)
+                                                            x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * dist_cost
+                                                        
                                                         if reward_arr[t + arr_t][ne_idx][next_inv] is None:
                                                             reward_arr[t + arr_t][ne_idx][next_inv] = new_reward
                                                             trace_arr[t + arr_t][ne_idx][next_inv] = (t, cur_s, inv)
