@@ -1,4 +1,5 @@
 import numba
+from numba import objmode, types
 from numba.typed import List
 import time
 import logging
@@ -87,7 +88,7 @@ def is_backward_dominated(com: ESDComputer, cur_s: int, cur_t: int, half_t: int,
     step_t = label_t - 1
     if set_1.issubset(set_2) and reward_1 >= reward_2:
         flag = True
-        old_reward_1 = com.compute_ESD_in_horizon(
+        old_reward_1 = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
             station_id=cur_s,
             t_arr=label_t,
             ins=ins_1,
@@ -97,7 +98,7 @@ def is_backward_dominated(com: ESDComputer, cur_s: int, cur_t: int, half_t: int,
             delta=True,
             repo=True
         )
-        old_reward_2 = com.compute_ESD_in_horizon(
+        old_reward_2 = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
             station_id=cur_s,
             t_arr=label_t,
             ins=ins_2,
@@ -111,7 +112,7 @@ def is_backward_dominated(com: ESDComputer, cur_s: int, cur_t: int, half_t: int,
             if 0 <= ei_s_arr[cur_s - 1, cur_t, cur_t + step_t, x_s_arr[cur_s - 1], x_c_arr[cur_s - 1]] + ins_2 <= cap_s:
                 if 0 <= ei_s_arr[
                     cur_s - 1, cur_t, cur_t + step_t, x_s_arr[cur_s - 1], x_c_arr[cur_s - 1]] + ins_1 <= cap_s:
-                    new_reward_1 = com.compute_ESD_in_horizon(
+                    new_reward_1 = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
                         station_id=cur_s,
                         t_arr=step_t,
                         ins=ins_1,
@@ -121,7 +122,7 @@ def is_backward_dominated(com: ESDComputer, cur_s: int, cur_t: int, half_t: int,
                         delta=True,
                         repo=True
                     )
-                    new_reward_2 = com.compute_ESD_in_horizon(
+                    new_reward_2 = ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
                         station_id=cur_s,
                         t_arr=step_t,
                         ins=ins_2,
@@ -520,10 +521,11 @@ def get_dp_reduced_cost_forward(cap_v: int, cap_s: int, num_stations: int, init_
 @numba.jit(
     'i1[:](i8,i8,i8,i8,i8,i4[:],i4[:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:],i8,i8,i8,i8,i4[:],i4[:])',
     nopython=True, nogil=True)
-def get_dp_reduced_cost_numba(cap_v: int, cap_s: int, num_stations: int, init_loc: int, init_load: int,
-                              x_s_arr: np.ndarray, x_c_arr: np.ndarray, ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
-                              esd_arr: np.ndarray, c_mat: np.ndarray, cur_t: int, t_p: int, t_f: int,
-                              alpha: float, dual_van_vec: np.ndarray, dual_station_vec: np.ndarray):
+def get_dp_reduced_cost_forward_numba(cap_v: int, cap_s: int, num_stations: int, init_loc: int, init_load: int,
+                                      x_s_arr: np.ndarray, x_c_arr: np.ndarray, ei_s_arr: np.ndarray,
+                                      ei_c_arr: np.ndarray,
+                                      esd_arr: np.ndarray, c_mat: np.ndarray, cur_t: int, t_p: int, t_f: int,
+                                      alpha: float, dual_van_vec: np.ndarray, dual_station_vec: np.ndarray):
     """calculate exact reduced cost using dynamic programming (accelerated by numba)"""
     cur_t = round(cur_t - RE_START_T / 10)
     # post decision state inventory
@@ -1908,6 +1910,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
             if t_repo > least_t_repo:
                 if t == half_way_t:
                     break
+    # print(for_reward_arr[3][1][0])
     ed = time.process_time()
     print(f'forward pass finished, time: {ed - st}')
     if t_repo > least_t_repo:
@@ -1993,7 +1996,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                              half_t=half_way_t,
                                                                              label_t=t - arr_t, label1=tmp_label,
                                                                              label2=la_label,
-                                                                             x_s_arr=x_s_arr, x_c_arr=x_c_arr, cap_s=cap_s,
+                                                                             x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                             cap_s=cap_s,
                                                                              ei_s_arr=ei_s_arr):
                                                         dom_idx.append(la_label_id)
                                                     elif is_backward_dominated(com=com, cur_s=la, cur_t=cur_t,
@@ -2074,15 +2078,18 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                 last_label_id]
                                                             if is_backward_dominated(com=com, cur_s=last_s, cur_t=cur_t,
                                                                                      half_t=half_way_t,
-                                                                                     label_t=t - stay_t, label1=tmp_label,
+                                                                                     label_t=t - stay_t,
+                                                                                     label1=tmp_label,
                                                                                      label2=la_label,
                                                                                      x_s_arr=x_s_arr, x_c_arr=x_c_arr,
                                                                                      cap_s=cap_s,
                                                                                      ei_s_arr=ei_s_arr):
                                                                 dom_idx.append(last_label_id)
-                                                            elif is_backward_dominated(com=com, cur_s=last_s, cur_t=cur_t,
+                                                            elif is_backward_dominated(com=com, cur_s=last_s,
+                                                                                       cur_t=cur_t,
                                                                                        half_t=half_way_t,
-                                                                                       label_t=t - stay_t, label1=la_label,
+                                                                                       label_t=t - stay_t,
+                                                                                       label1=la_label,
                                                                                        label2=tmp_label,
                                                                                        x_s_arr=x_s_arr, x_c_arr=x_c_arr,
                                                                                        cap_s=cap_s,
@@ -2091,7 +2098,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                 break
                                                         else:
                                                             if len(dom_idx) == 0:  # no domination
-                                                                back_reward_arr[t - stay_t][last_s][inv].append(tmp_label)
+                                                                back_reward_arr[t - stay_t][last_s][inv].append(
+                                                                    tmp_label)
                                                                 back_trace_arr[t - stay_t][last_s][inv].append(
                                                                     (t, cur_s, inv, label_id))
                                                                 back_calcu_arr[t - stay_t][last_s - 1] = True
@@ -2102,7 +2110,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                     back_reward_arr[t - stay_t][last_s][inv].pop(idx)
                                                                     back_trace_arr[t - stay_t][last_s][inv].pop(idx)
                                                                 # then add
-                                                                back_reward_arr[t - stay_t][last_s][inv].append(tmp_label)
+                                                                back_reward_arr[t - stay_t][last_s][inv].append(
+                                                                    tmp_label)
                                                                 back_trace_arr[t - stay_t][last_s][inv].append(
                                                                     (t, cur_s, inv, label_id))
                                                                 back_calcu_arr[t - stay_t][last_s - 1] = True
@@ -2124,7 +2133,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                             x_c_arr=x_c_arr,
                                                             mode='multi',
                                                             delta=True,
-                                                            repo=True) - alpha * (arr_t - 1) - dual_station_vec[last_s - 1]
+                                                            repo=True) - alpha * (arr_t - 1) - dual_station_vec[
+                                                                         last_s - 1]
                                                         if back_reward_arr[t - arr_t][last_s][last_inv] is None:
                                                             back_reward_arr[t - arr_t][last_s][last_inv] = [
                                                                 (new_reward, cur_set | {last_s}, ins)]
@@ -2138,12 +2148,14 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                     len(back_reward_arr[t - arr_t][last_s][last_inv])):
                                                                 la_label = back_reward_arr[t - arr_t][last_s][last_inv][
                                                                     last_label_id]
-                                                                if is_backward_dominated(com=com, cur_s=last_s, cur_t=cur_t,
+                                                                if is_backward_dominated(com=com, cur_s=last_s,
+                                                                                         cur_t=cur_t,
                                                                                          half_t=half_way_t,
                                                                                          label_t=t - arr_t,
                                                                                          label1=tmp_label,
                                                                                          label2=la_label,
-                                                                                         x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                                         x_s_arr=x_s_arr,
+                                                                                         x_c_arr=x_c_arr,
                                                                                          cap_s=cap_s,
                                                                                          ei_s_arr=ei_s_arr):
                                                                     dom_idx.append(last_label_id)
@@ -2153,7 +2165,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                                            label_t=t - arr_t,
                                                                                            label1=la_label,
                                                                                            label2=tmp_label,
-                                                                                           x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                                           x_s_arr=x_s_arr,
+                                                                                           x_c_arr=x_c_arr,
                                                                                            cap_s=cap_s,
                                                                                            ei_s_arr=ei_s_arr):
                                                                     assert not dom_idx
@@ -2169,9 +2182,11 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                                     dom_idx.sort(reverse=True)  # 从后往前删除，避免索引错位
                                                                     # first delete
                                                                     for idx in dom_idx:
-                                                                        back_reward_arr[t - arr_t][last_s][last_inv].pop(
+                                                                        back_reward_arr[t - arr_t][last_s][
+                                                                            last_inv].pop(
                                                                             idx)
-                                                                        back_trace_arr[t - arr_t][last_s][last_inv].pop(idx)
+                                                                        back_trace_arr[t - arr_t][last_s][last_inv].pop(
+                                                                            idx)
                                                                     # then add
                                                                     back_reward_arr[t - arr_t][last_s][last_inv].append(
                                                                         tmp_label)
@@ -2184,16 +2199,25 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
         print(f'backward pass finished, time: {ed - st}')
 
         st = time.process_time()
+        #
         # # label count
-        # count = 0
-        # for count_t in range(half_way_t + 1, t_repo + 1):
-        #     print(f'count_t={count_t}, count={count}')
+        # forward_count = 0
+        # for count_t in range(t_repo + 1):
         #     for s in range(num_stations + 1):
         #         for inv in range(inv_num):
-        #             if count_t == 11 and for_reward_arr[count_t][s][inv] is not None:
-        #                 logging.debug(f'count_t={count_t}, count={count}')
-        #             count += (len(for_reward_arr[count_t][s][inv]) if for_reward_arr[count_t][s][inv] is not None else 0)
-        # print(f'count={count}')
+        #             if for_reward_arr[count_t][s][inv] is not None:
+        #                 if len(for_reward_arr[count_t][s][inv]) > forward_count:
+        #                     forward_count = len(for_reward_arr[count_t][s][inv])
+        # print(f'max forward count = {forward_count}')
+        # backward_count = 0
+        # for count_t in range(t_repo + 1):
+        #     for s in range(num_stations + 1):
+        #         for inv in range(inv_num):
+        #             if back_reward_arr[count_t][s][inv] is not None:
+        #                 if len(back_reward_arr[count_t][s][inv]) > backward_count:
+        #                     backward_count = len(back_reward_arr[count_t][s][inv])
+        # print(f'max backward count = {backward_count}')
+
         # join
         max_rewards = []
         max_labels = []
@@ -2213,11 +2237,14 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                             if back_reward_arr[back_t][back_s][0] is not None:
                                                 for back_label_id in range(len(back_reward_arr[back_t][back_s][0])):
                                                     back_label = back_reward_arr[back_t][back_s][0][back_label_id]
-                                                    if back_label[0] > 0 and len(for_label[1].intersection(back_label[1])) == 0:
-                                                    # if len(for_label[1].intersection(back_label[1])) == 0:
+                                                    if back_label[0] > 0 and len(
+                                                            for_label[1].intersection(back_label[1])) == 0:
+                                                        # if len(for_label[1].intersection(back_label[1])) == 0:
                                                         max_rewards.append(
-                                                            for_label[0] + back_label[0] - alpha * round(c_mat[s, back_s]))
-                                                        max_labels.append(((for_t, s, 0, for_label_id), (back_t, back_s, 0, back_label_id)))
+                                                            for_label[0] + back_label[0] - alpha * round(
+                                                                c_mat[s, back_s]))
+                                                        max_labels.append(((for_t, s, 0, for_label_id),
+                                                                           (back_t, back_s, 0, back_label_id)))
                 else:  # s > 0
                     for inv in range(inv_num):
                         if for_reward_arr[for_t][s][inv] is not None:
@@ -2226,17 +2253,22 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                 for back_s in range(num_stations + 1):
                                     if back_s == 0:
                                         max_rewards.append(for_label[0])
-                                        max_labels.append(((for_t, s, inv, for_label_id), (for_t, s, inv, for_label_id)))
+                                        max_labels.append(
+                                            ((for_t, s, inv, for_label_id), (for_t, s, inv, for_label_id)))
                                     else:
                                         if back_s not in for_label[1]:
                                             for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
                                                 if back_reward_arr[back_t][back_s][inv] is not None:
-                                                    for back_label_id in range(len(back_reward_arr[back_t][back_s][inv])):
+                                                    for back_label_id in range(
+                                                            len(back_reward_arr[back_t][back_s][inv])):
                                                         back_label = back_reward_arr[back_t][back_s][inv][back_label_id]
-                                                        if back_label[0] > 0 and len(for_label[1].intersection(back_label[1])) == 0:
+                                                        if back_label[0] > 0 and len(
+                                                                for_label[1].intersection(back_label[1])) == 0:
                                                             max_rewards.append(
-                                                                for_label[0] + back_label[0] - alpha * (round(c_mat[s, back_s]) - 1))
-                                                            max_labels.append(((for_t, s, inv, for_label_id), (back_t, back_s, inv, back_label_id)))
+                                                                for_label[0] + back_label[0] - alpha * (
+                                                                        round(c_mat[s, back_s]) - 1))
+                                                            max_labels.append(((for_t, s, inv, for_label_id),
+                                                                               (back_t, back_s, inv, back_label_id)))
     else:  # with no backward labeling
         max_reward_list, max_label_list = [], []
         label_length_test = []
@@ -2295,6 +2327,12 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
     max_val_idx = max_rewards.index(max_val)
     ed = time.process_time()
     print(f'join pass finished, time: {ed - st}')
+
+    print(f'forward idx: {max_labels[max_val_idx][0]}')
+    print(f'forward label: {for_reward_arr[max_labels[max_val_idx][0][0]][max_labels[max_val_idx][0][1]][max_labels[max_val_idx][0][2]][max_labels[max_val_idx][0][3]]}')
+    print(f'backward idx: {max_labels[max_val_idx][1]}')
+    print(f'backward label: {back_reward_arr[max_labels[max_val_idx][1][0]][max_labels[max_val_idx][1][1]][max_labels[max_val_idx][1][2]][max_labels[max_val_idx][1][3]]}')
+
     # get clean routes
     # forward
     k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][0]
@@ -2340,6 +2378,2048 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
     print(f'max_val: {max_val}')
 
     return clean_route, max_val
+
+
+@numba.jit('i8[:](i8,i8,i8,i8,i8,i4[:],i4[:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:],i8,i8,i8,f8,i8,i4[:],i1[:],i1[:])',
+           nopython=True, nogil=True)
+def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
+                                            init_load: int, x_s_arr: np.ndarray, x_c_arr: np.ndarray,
+                                            ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
+                                            esd_arr: np.ndarray, c_mat: np.ndarray,
+                                            cur_t: int, t_p: int, t_f: int, alpha: float,
+                                            dual_van: int, dual_station_vec: np.ndarray,
+                                            inventory_dict: np.ndarray, inventory_id_dict: np.ndarray):
+    """calculate heuristic or exact reduced cost using bidirectional labeling algorithm, accelerated by numba"""
+    cur_t = round(cur_t - RE_START_T / 10)
+    t_repo = t_p if RE_START_T / 10 + cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t - RE_START_T / 10)
+    half_way_t = int((init_t_left + t_repo) / 2 - 1)  # forward to: h, backward to: h + 3(min travel distance)
+    least_t_repo = 4  # 4
+    print(f'in get_dp_reduced_cost_bidirec(), time_left = {init_t_left}, half_way_point = {half_way_t}')
+    if t_repo == 1:
+        return np.array([init_loc], dtype=np.int64)
+    elif t_repo == 0:
+        assert False
+    print(f'in get_dp_reduced_cost_bidirec(), t_repo = {t_repo}')
+    # default_inv_id_arr = np.array([0, 0, 0, 0, 0,
+    #                                1, 1, 1, 1, 1,
+    #                                2, 2, 2, 2, 2,
+    #                                3, 3, 3, 3, 3,
+    #                                4, 4, 4, 4, 4,
+    #                                5, 5, 5, 5, 5], dtype=np.int8)
+    # default_inv_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
+    inv_id_arr = inventory_id_dict
+    inv_arr = inventory_dict
+    inv_num = inv_arr.shape[0]
+    max_label_num = 150
+    for_label_num_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num), dtype=np.int32)
+    for_reward_val_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.float64)
+    for_reward_set_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num, num_stations + 1),
+                                  dtype=np.bool_)
+    for_trace_t_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+    for_trace_s_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+    for_trace_inv_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+    for_trace_lid_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int32)
+    for_calcu_arr = np.zeros((t_repo + 1, num_stations), dtype=np.bool_)
+    # forward pass
+    for t in range(t_repo + 1):
+        if t == init_t_left:
+            if init_loc == 0:
+                assert init_load == 0
+                for_label_num_arr[t, init_loc, inv_id_arr[init_load]] = 1
+                for_reward_val_arr[t, init_loc, inv_id_arr[init_load], 0] = 0
+                for_reward_set_arr[t, init_loc, inv_id_arr[init_load], 0, init_loc] = True
+                cur_reward = 0
+                for ne in range(num_stations + 1):  # can stay at the depot
+                    if ne == 0:
+                        stay_t = 1
+                        inv = inv_id_arr[init_load]
+                        if t + stay_t <= t_repo:
+                            if for_label_num_arr[t + stay_t, ne, inv] == 0:
+                                new_reward = cur_reward
+                                for_label_num_arr[t + stay_t, ne, inv] = 1
+                                for_reward_val_arr[t + stay_t, ne, inv, 0] = new_reward
+                                for_reward_set_arr[t + stay_t, ne, inv, 0, init_loc] = True
+                                for_trace_t_arr[t + stay_t, ne, inv, 0] = t
+                                for_trace_s_arr[t + stay_t, ne, inv, 0] = init_loc
+                                for_trace_inv_arr[t + stay_t, ne, inv, 0] = inv
+                                for_trace_lid_arr[t + stay_t, ne, inv, 0] = 0
+                            else:  # impossible to reach
+                                assert False
+                    else:  # visit other stations
+                        arr_t = round(c_mat[init_loc, ne])
+                        if t + arr_t <= t_repo:
+                            for inv in range(inv_num):
+                                ins = -inv_arr[inv]
+                                if 0 <= ei_s_arr[
+                                    ne - 1, cur_t, cur_t + t + arr_t, x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_s:
+                                    before_val = esd_arr[ne - 1, cur_t,
+                                        cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                        x_s_arr[ne - 1],
+                                        x_c_arr[ne - 1]]
+                                    after_val = esd_arr[
+                                        ne - 1,
+                                        cur_t + t + arr_t if cur_t + t + arr_t < 36 else 35,
+                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                        round(ei_s_arr[
+                                                  ne - 1,
+                                                  cur_t,
+                                                  cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                  x_s_arr[ne - 1],
+                                                  x_c_arr[ne - 1]] + ins),
+                                        round(ei_c_arr[
+                                                  ne - 1,
+                                                  cur_t,
+                                                  cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                  x_s_arr[ne - 1],
+                                                  x_c_arr[ne - 1]])
+                                    ]
+                                    original_val = esd_arr[ne - 1, cur_t,
+                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                        x_s_arr[ne - 1],
+                                        x_c_arr[ne - 1]
+                                    ]
+                                    computed_ESD = before_val + after_val - original_val
+
+                                    for_label_num_arr[arr_t, ne, inv] = 1
+                                    for_reward_val_arr[arr_t, ne, inv, 0] = (
+                                            ORDER_INCOME_UNIT * computed_ESD -
+                                            alpha * arr_t - dual_station_vec[ne - 1])
+                                    for_reward_set_arr[arr_t, ne, inv, 0, init_loc] = True
+                                    for_reward_set_arr[arr_t, ne, inv, 0, ne] = True
+
+                                    for_trace_t_arr[arr_t, ne, inv, 0] = init_t_left
+                                    for_trace_s_arr[arr_t, ne, inv, 0] = init_loc
+                                    for_trace_inv_arr[arr_t, ne, inv, 0] = inv_id_arr[init_load]
+                                    for_trace_lid_arr[arr_t, ne, inv, 0] = 0
+                                    for_calcu_arr[arr_t, ne - 1] = True
+                                else:
+                                    pass
+            else:  # init_loc > 0
+                for inv in range(inv_num):  # label every inventory level at initial point
+                    ins = init_load - inv_arr[inv]
+                    if 0 <= ei_s_arr[
+                        init_loc - 1, cur_t, cur_t + t, x_s_arr[init_loc - 1], x_c_arr[init_loc - 1]] + ins <= cap_s:
+                        before_val = esd_arr[
+                            init_loc - 1, cur_t,
+                            round(cur_t + t) if round(cur_t + t) < 49 else 48,
+                            x_s_arr[init_loc - 1],
+                            x_c_arr[init_loc - 1]]
+                        after_val = esd_arr[
+                            init_loc - 1,
+                            cur_t + t if cur_t + t < 36 else 35,
+                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                            round(ei_s_arr[
+                                      init_loc - 1,
+                                      cur_t,
+                                      cur_t + t if cur_t + t < 49 else 48,
+                                      x_s_arr[init_loc - 1],
+                                      x_c_arr[init_loc - 1]] + ins),
+                            round(ei_c_arr[
+                                      init_loc - 1,
+                                      cur_t,
+                                      cur_t + t if cur_t + t < 49 else 48,
+                                      x_s_arr[init_loc - 1],
+                                      x_c_arr[init_loc - 1]])
+                        ]
+                        original_val = esd_arr[
+                            init_loc - 1, cur_t,
+                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                            x_s_arr[init_loc - 1],
+                            x_c_arr[init_loc - 1]
+                        ]
+                        computed_ESD = before_val + after_val - original_val
+                        for_label_num_arr[t, init_loc, inv] = 1
+                        for_reward_val_arr[t, init_loc, inv] = (ORDER_INCOME_UNIT * computed_ESD -
+                                                                dual_station_vec[init_loc - 1])
+                        for_reward_set_arr[t, init_loc, inv, 0, init_loc] = True
+                        cur_reward = ORDER_INCOME_UNIT * computed_ESD - dual_station_vec[init_loc - 1]
+
+                        for ne in range(1, num_stations + 1):
+                            if ne == init_loc:
+                                stay_t = 1
+                                if t + stay_t <= t_repo:
+                                    if for_label_num_arr[t + stay_t, ne, inv] == 0:
+                                        new_reward = cur_reward
+                                        for_label_num_arr[t + stay_t, ne, inv] = 1
+                                        for_reward_val_arr[t + stay_t, ne, inv, 0] = new_reward
+                                        for_reward_set_arr[t + stay_t, ne, inv, 0, init_loc] = True
+                                        for_trace_t_arr[t + stay_t, ne, inv, 0] = t
+                                        for_trace_s_arr[t + stay_t, ne, inv, 0] = init_loc
+                                        for_trace_inv_arr[t + stay_t, ne, inv, 0] = inv
+                                        for_trace_lid_arr[t + stay_t, ne, inv, 0] = 0
+                                        for_calcu_arr[t + stay_t, ne - 1] = True
+                                    else:  # dominate rules applied
+                                        tmp_val = cur_reward
+                                        tmp_set = for_reward_set_arr[t, ne, inv, 0, :].copy()
+                                        dom_idx = List()
+                                        for ne_label_id in range(for_label_num_arr[t + stay_t, ne, inv]):
+                                            ne_val = for_reward_val_arr[t + stay_t, ne, inv, ne_label_id]
+                                            ne_set = for_reward_set_arr[t + stay_t, ne, inv, ne_label_id, :].copy()
+                                            if tmp_val >= ne_val and not np.any(tmp_set > ne_set):  # set1是set2的子集
+                                                dom_idx.append(ne_label_id)
+                                            elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
+                                                assert len(dom_idx) == 0  # dom_idx is empty
+                                                break
+                                        else:
+                                            if len(dom_idx) == 0:  # no domination
+                                                cur_label_num = for_label_num_arr[t + stay_t, ne, inv]
+                                                for_label_num_arr[t + stay_t, ne, inv] = cur_label_num + 1
+                                                for_reward_val_arr[t + stay_t, ne, inv, cur_label_num] = tmp_val
+                                                for_reward_set_arr[t + stay_t, ne, inv, cur_label_num, :] = tmp_set
+                                                for_trace_t_arr[t + stay_t, ne, inv, cur_label_num] = t
+                                                for_trace_s_arr[t + stay_t, ne, inv, cur_label_num] = init_loc
+                                                for_trace_inv_arr[t + stay_t, ne, inv, cur_label_num] = inv
+                                                for_trace_lid_arr[t + stay_t, ne, inv, cur_label_num] = 0
+                                                for_calcu_arr[t + stay_t, ne - 1] = True
+                                            elif len(dom_idx) == 1:
+                                                change_idx = dom_idx[0]
+                                                for_reward_val_arr[t + stay_t, ne, inv, change_idx] = tmp_val
+                                                for_reward_set_arr[t + stay_t, ne, inv, change_idx, :] = tmp_set
+                                                for_trace_t_arr[t + stay_t, ne, inv, change_idx] = t
+                                                for_trace_s_arr[t + stay_t, ne, inv, change_idx] = init_loc
+                                                for_trace_inv_arr[t + stay_t, ne, inv, change_idx] = inv
+                                                for_trace_lid_arr[t + stay_t, ne, inv, change_idx] = 0
+                                                for_calcu_arr[t + stay_t, ne - 1] = True
+                                            else:
+                                                idx_arr = np.empty(len(dom_idx), dtype=dom_idx._dtype)
+                                                for i, v in enumerate(dom_idx):
+                                                    idx_arr[i] = v
+                                                idx_arr.sort()
+                                                idx_arr = idx_arr[::-1]
+                                                # first delete
+                                                for del_idx in idx_arr:
+                                                    if del_idx == for_label_num_arr[t + stay_t, ne, inv] - 1:
+                                                        for_label_num_arr[t + stay_t, ne, inv] -= 1
+                                                    else:
+                                                        # exchange del_idx and label_num-1
+                                                        total_num = for_label_num_arr[t + stay_t, ne, inv]
+                                                        for_reward_val_arr[t + stay_t, ne, inv, del_idx] = \
+                                                            for_reward_val_arr[t + stay_t, ne, inv, total_num - 1]
+                                                        for_reward_set_arr[t + stay_t, ne, inv, del_idx, :] = \
+                                                            for_reward_set_arr[t + stay_t, ne, inv, total_num - 1, :]
+                                                        for_trace_t_arr[t + stay_t, ne, inv, del_idx] = \
+                                                            for_trace_t_arr[t + stay_t, ne, inv, total_num - 1]
+                                                        for_trace_s_arr[t + stay_t, ne, inv, del_idx] = \
+                                                            for_trace_s_arr[t + stay_t, ne, inv, total_num - 1]
+                                                        for_trace_inv_arr[t + stay_t, ne, inv, del_idx] = \
+                                                            for_trace_inv_arr[t + stay_t, ne, inv, total_num - 1]
+                                                        for_trace_lid_arr[t + stay_t, ne, inv, del_idx] = \
+                                                            for_trace_lid_arr[t + stay_t, ne, inv, total_num - 1]
+                                                        for_label_num_arr[t + stay_t, ne, inv] -= 1
+                                                # then add
+                                                cur_label_num = for_label_num_arr[t + stay_t, ne, inv]
+                                                for_label_num_arr[t + stay_t, ne, inv] = cur_label_num + 1
+                                                for_reward_val_arr[t + stay_t, ne, inv, cur_label_num] = tmp_val
+                                                for_reward_set_arr[t + stay_t, ne, inv, cur_label_num, :] = tmp_set
+                                                for_trace_t_arr[t + stay_t, ne, inv, cur_label_num] = t
+                                                for_trace_s_arr[t + stay_t, ne, inv, cur_label_num] = init_loc
+                                                for_trace_inv_arr[t + stay_t, ne, inv, cur_label_num] = inv
+                                                for_trace_lid_arr[t + stay_t, ne, inv, cur_label_num] = 0
+                                                for_calcu_arr[t + stay_t, ne - 1] = True
+                            else:
+                                arr_t = round(c_mat[init_loc, ne])
+                                if t + arr_t <= t_repo:
+                                    for ne_inv in range(inv_num):
+                                        ins = inv_arr[inv] - inv_arr[ne_inv]
+                                        if 0 <= ei_s_arr[ne - 1, cur_t, cur_t + t + arr_t, x_s_arr[ne - 1], x_c_arr[
+                                            ne - 1]] + ins <= cap_s:
+                                            before_val = esd_arr[
+                                                ne - 1, cur_t,
+                                                round(cur_t + t + arr_t) if round(cur_t + t + arr_t) < 49 else 48,
+                                                x_s_arr[ne - 1],
+                                                x_c_arr[ne - 1]]
+                                            after_val = esd_arr[
+                                                ne - 1,
+                                                cur_t + t + arr_t if cur_t + t + arr_t < 36 else 35,
+                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                round(ei_s_arr[
+                                                          ne - 1,
+                                                          cur_t,
+                                                          cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                          x_s_arr[ne - 1],
+                                                          x_c_arr[ne - 1]] + ins),
+                                                round(ei_c_arr[
+                                                          ne - 1,
+                                                          cur_t,
+                                                          cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                          x_s_arr[ne - 1],
+                                                          x_c_arr[ne - 1]])
+                                            ]
+                                            original_val = esd_arr[
+                                                ne - 1, cur_t,
+                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                x_s_arr[ne - 1],
+                                                x_c_arr[ne - 1]
+                                            ]
+                                            new_reward = (cur_reward +
+                                                          ORDER_INCOME_UNIT * (before_val + after_val - original_val) -
+                                                          alpha * (arr_t - 1) - dual_station_vec[ne - 1])
+                                            if for_label_num_arr[t + arr_t, ne, ne_inv] == 0:
+                                                for_label_num_arr[t + arr_t, ne, ne_inv] = 1
+                                                for_reward_val_arr[t + arr_t, ne, ne_inv, 0] = new_reward
+                                                for_reward_set_arr[t + arr_t, ne, ne_inv, 0, init_loc] = True
+                                                for_reward_set_arr[t + arr_t, ne, ne_inv, 0, ne] = True
+                                                for_trace_t_arr[t + arr_t, ne, ne_inv, 0] = t
+                                                for_trace_s_arr[t + arr_t, ne, ne_inv, 0] = init_loc
+                                                for_trace_inv_arr[t + arr_t, ne, ne_inv, 0] = inv
+                                                for_trace_lid_arr[t + arr_t, ne, ne_inv, 0] = 0
+                                                for_calcu_arr[t + arr_t, ne - 1] = True
+                                            else:
+                                                if new_reward > for_reward_val_arr[t + arr_t, ne, ne_inv, 0]:
+                                                    for_label_num_arr[t + arr_t, ne, ne_inv] = 1
+                                                    for_reward_val_arr[t + arr_t, ne, ne_inv, 0] = new_reward
+                                                    for_reward_set_arr[t + arr_t, ne, ne_inv, 0, init_loc] = True
+                                                    for_reward_set_arr[t + arr_t, ne, ne_inv, 0, ne] = True
+                                                    for_trace_t_arr[t + arr_t, ne, ne_inv, 0] = t
+                                                    for_trace_s_arr[t + arr_t, ne, ne_inv, 0] = init_loc
+                                                    for_trace_inv_arr[t + arr_t, ne, ne_inv, 0] = inv
+                                                    for_trace_lid_arr[t + arr_t, ne, ne_inv, 0] = 0
+                                                    for_calcu_arr[t + arr_t, ne - 1] = True
+        elif t > init_t_left:
+            if t == t_repo - 1:
+                break
+            else:
+                for cur_s in range(num_stations + 1):
+                    if cur_s > 0 and not for_calcu_arr[t, cur_s - 1]:
+                        pass
+                    else:
+                        for inv in range(inv_num):
+                            if for_label_num_arr[t, cur_s, inv] == 0:
+                                pass
+                            else:  # select labels to extend
+                                for label_id in range(for_label_num_arr[t, cur_s, inv]):
+                                    cur_reward = for_reward_val_arr[t, cur_s, inv, label_id]
+                                    cur_set = for_reward_set_arr[t, cur_s, inv, label_id, :].copy()
+                                    least_can_visit = 0 if cur_s == 0 else 1
+                                    for next_s in range(least_can_visit, num_stations + 1):
+                                        if next_s == cur_s:  # stay at current
+                                            stay_t = 1
+                                            if t + stay_t <= t_repo:
+                                                if t + stay_t < t_repo - 1 or inv_arr[inv] == 0:
+                                                    new_reward = cur_reward
+                                                    if for_label_num_arr[t + stay_t, next_s, inv] == 0:
+                                                        for_label_num_arr[t + stay_t, next_s, inv] = 1
+                                                        for_reward_val_arr[t + stay_t, next_s, inv, 0] = new_reward
+                                                        for_reward_set_arr[t + stay_t, next_s, inv, 0, :] = cur_set
+                                                        for_trace_t_arr[t + stay_t, next_s, inv, 0] = t
+                                                        for_trace_s_arr[t + stay_t, next_s, inv, 0] = cur_s
+                                                        for_trace_inv_arr[t + stay_t, next_s, inv, 0] = inv
+                                                        for_trace_lid_arr[t + stay_t, next_s, inv, 0] = label_id
+                                                        for_calcu_arr[t + stay_t, next_s - 1] = True
+                                                    else:  # dominate rules applied
+                                                        tmp_val = cur_reward
+                                                        tmp_set = for_reward_set_arr[t, cur_s, inv, label_id, :].copy()
+                                                        dom_idx = List()
+                                                        for ne_label_id in range(for_label_num_arr[t + stay_t, next_s, inv]):
+                                                            ne_val = for_reward_val_arr[t + stay_t, next_s, inv, ne_label_id]
+                                                            ne_set = for_reward_set_arr[t + stay_t, next_s, inv, ne_label_id, :].copy()
+                                                            if tmp_val >= ne_val and not np.any(tmp_set > ne_set):  # set1是set2的子集
+                                                                dom_idx.append(ne_label_id)
+                                                            elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
+                                                                assert len(dom_idx) == 0  # dom_idx is empty
+                                                                break
+                                                        else:
+                                                            if len(dom_idx) == 0:  # no domination
+                                                                cur_label_num = for_label_num_arr[t + stay_t, next_s, inv]
+                                                                for_label_num_arr[t + stay_t, next_s, inv] = cur_label_num + 1
+                                                                for_reward_val_arr[t + stay_t, next_s, inv, cur_label_num] = tmp_val
+                                                                for_reward_set_arr[t + stay_t, next_s, inv, cur_label_num, :] = tmp_set
+                                                                for_trace_t_arr[t + stay_t, next_s, inv, cur_label_num] = t
+                                                                for_trace_s_arr[t + stay_t, next_s, inv, cur_label_num] = cur_s
+                                                                for_trace_inv_arr[t + stay_t, next_s, inv, cur_label_num] = inv
+                                                                for_trace_lid_arr[t + stay_t, next_s, inv, cur_label_num] = label_id
+                                                                for_calcu_arr[t + stay_t, next_s - 1] = True
+                                                            elif len(dom_idx) == 1:
+                                                                change_idx = dom_idx[0]
+                                                                for_reward_val_arr[t + stay_t, next_s, inv, change_idx] = tmp_val
+                                                                for_reward_set_arr[t + stay_t, next_s, inv, change_idx, :] = tmp_set
+                                                                for_trace_t_arr[t + stay_t, next_s, inv, change_idx] = t
+                                                                for_trace_s_arr[t + stay_t, next_s, inv, change_idx] = cur_s
+                                                                for_trace_inv_arr[t + stay_t, next_s, inv, change_idx] = inv
+                                                                for_trace_lid_arr[t + stay_t, next_s, inv, change_idx] = label_id
+                                                                for_calcu_arr[t + stay_t, next_s - 1] = True
+                                                            else:
+                                                                idx_arr = np.empty(len(dom_idx), dtype=np.int32)
+                                                                for i, v in enumerate(dom_idx):
+                                                                    idx_arr[i] = v
+                                                                idx_arr.sort()
+                                                                idx_arr = idx_arr[::-1]
+                                                                # first delete
+                                                                for del_idx in idx_arr:
+                                                                    if del_idx == for_label_num_arr[t + stay_t, next_s, inv] - 1:
+                                                                        for_label_num_arr[t + stay_t, next_s, inv] -= 1
+                                                                    else:
+                                                                        # exchange del_idx and label_num-1
+                                                                        total_num = for_label_num_arr[t + stay_t, next_s, inv]
+                                                                        for_reward_val_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                            for_reward_val_arr[t + stay_t, next_s, inv, total_num - 1]
+                                                                        for_reward_set_arr[t + stay_t, next_s, inv, del_idx, :] \
+                                                                            = for_reward_set_arr[t + stay_t, next_s, inv,
+                                                                              total_num - 1, :]
+                                                                        for_trace_t_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                            for_trace_t_arr[
+                                                                                t + stay_t, next_s, inv, total_num - 1]
+                                                                        for_trace_s_arr[t + stay_t, next_s, inv, del_idx] = \
+                                                                            for_trace_s_arr[
+                                                                                t + stay_t, next_s, inv, total_num - 1]
+                                                                        for_trace_inv_arr[
+                                                                            t + stay_t, next_s, inv, del_idx] = \
+                                                                            for_trace_inv_arr[
+                                                                                t + stay_t, next_s, inv, total_num - 1]
+                                                                        for_trace_lid_arr[
+                                                                            t + stay_t, next_s, inv, del_idx] = \
+                                                                            for_trace_lid_arr[
+                                                                                t + stay_t, next_s, inv, total_num - 1]
+                                                                        for_label_num_arr[t + stay_t, next_s, inv] -= 1
+                                                                # then add
+                                                                cur_label_num = for_label_num_arr[t + stay_t, next_s, inv]
+                                                                for_label_num_arr[t + stay_t, next_s, inv] += 1
+                                                                for_reward_val_arr[
+                                                                    t + stay_t, next_s, inv, cur_label_num] = tmp_val
+                                                                for_reward_set_arr[t + stay_t, next_s, inv, cur_label_num,
+                                                                :] = tmp_set
+                                                                for_trace_t_arr[t + stay_t, next_s, inv, cur_label_num] = t
+                                                                for_trace_s_arr[
+                                                                    t + stay_t, next_s, inv, cur_label_num] = cur_s
+                                                                for_trace_inv_arr[
+                                                                    t + stay_t, next_s, inv, cur_label_num] = inv
+                                                                for_trace_lid_arr[
+                                                                    t + stay_t, next_s, inv, cur_label_num] = label_id
+                                                                for_calcu_arr[t + stay_t, next_s - 1] = True
+                                        elif cur_set[next_s]:  # already visited
+                                            pass
+                                        else:
+                                            arr_t = round(c_mat[cur_s, next_s])
+                                            if t + arr_t <= t_repo:
+                                                if t + arr_t < t_repo - 1:
+                                                    can_do_inv = inv_num
+                                                else:
+                                                    can_do_inv = 1
+                                                for ne_inv in range(can_do_inv):
+                                                    ins = inv_arr[inv] - inv_arr[ne_inv]
+                                                    if 0 <= ei_s_arr[
+                                                        next_s - 1, cur_t, cur_t + t + arr_t, x_s_arr[next_s - 1],
+                                                        x_c_arr[next_s - 1]] + ins <= cap_s:
+                                                        dist_cost = arr_t - 1 if cur_s != 0 else arr_t
+
+                                                        before_val = esd_arr[
+                                                            next_s - 1,
+                                                            cur_t,
+                                                            cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                            x_s_arr[next_s - 1],
+                                                            x_c_arr[next_s - 1]]
+                                                        after_val = esd_arr[
+                                                            next_s - 1,
+                                                            cur_t + t + arr_t if cur_t + t + arr_t < 36 else 35,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            round(ei_s_arr[
+                                                                      next_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                                      x_s_arr[next_s - 1],
+                                                                      x_c_arr[next_s - 1]] + ins),
+                                                            round(ei_c_arr[
+                                                                      next_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + t + arr_t if cur_t + t + arr_t < 49 else 48,
+                                                                      x_s_arr[next_s - 1],
+                                                                      x_c_arr[next_s - 1]])
+                                                        ]
+                                                        original_val = esd_arr[
+                                                            next_s - 1,
+                                                            cur_t,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            x_s_arr[next_s - 1],
+                                                            x_c_arr[next_s - 1]
+                                                        ]
+                                                        computed_ESD = before_val + after_val - original_val
+                                                        new_reward = (cur_reward +
+                                                                      ORDER_INCOME_UNIT * computed_ESD -
+                                                                      alpha * dist_cost - dual_station_vec[next_s - 1])
+                                                        if for_label_num_arr[t + arr_t, next_s, ne_inv] == 0:
+                                                            for_label_num_arr[t + arr_t, next_s, ne_inv] = 1
+                                                            for_reward_val_arr[t + arr_t, next_s, ne_inv, 0] = new_reward
+                                                            for_reward_set_arr[t + arr_t, next_s, ne_inv, 0, :] = cur_set
+                                                            for_reward_set_arr[t + arr_t, next_s, ne_inv, 0, next_s] = True
+                                                            for_trace_t_arr[t + arr_t, next_s, ne_inv, 0] = t
+                                                            for_trace_s_arr[t + arr_t, next_s, ne_inv, 0] = cur_s
+                                                            for_trace_inv_arr[t + arr_t, next_s, ne_inv, 0] = inv
+                                                            for_trace_lid_arr[t + arr_t, next_s, ne_inv, 0] = label_id
+                                                            for_calcu_arr[t + arr_t, next_s - 1] = True
+                                                        else:  # dominate rules applied
+                                                            tmp_val = new_reward
+                                                            tmp_set = for_reward_set_arr[t, cur_s, inv, label_id, :].copy()
+                                                            tmp_set[next_s] = True
+                                                            dom_idx = List()
+                                                            for ne_label_id in range(for_label_num_arr[t + arr_t, next_s, ne_inv]):
+                                                                ne_val = for_reward_val_arr[t + arr_t, next_s, ne_inv, ne_label_id]
+                                                                ne_set = for_reward_set_arr[t + arr_t, next_s, ne_inv, ne_label_id, :].copy()
+                                                                if tmp_val >= ne_val and not np.any(tmp_set > ne_set):  # set1是set2的子集
+                                                                    dom_idx.append(ne_label_id)
+                                                                elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
+                                                                    assert len(dom_idx) == 0
+                                                                    break
+                                                            else:
+                                                                if len(dom_idx) == 0:  # no domination
+                                                                    cur_label_num = for_label_num_arr[t + arr_t, next_s, ne_inv]
+                                                                    for_label_num_arr[t + arr_t, next_s, ne_inv] = cur_label_num + 1
+                                                                    for_reward_val_arr[t + arr_t, next_s, ne_inv, cur_label_num] = tmp_val
+                                                                    for_reward_set_arr[t + arr_t, next_s, ne_inv, cur_label_num, :] = tmp_set
+                                                                    for_trace_t_arr[t + arr_t, next_s, ne_inv, cur_label_num] = t
+                                                                    for_trace_s_arr[t + arr_t, next_s, ne_inv, cur_label_num] = cur_s
+                                                                    for_trace_inv_arr[t + arr_t, next_s, ne_inv, cur_label_num] = inv
+                                                                    for_trace_lid_arr[t + arr_t, next_s, ne_inv, cur_label_num] = label_id
+                                                                    for_calcu_arr[t + arr_t, next_s - 1] = True
+                                                                elif len(dom_idx) == 1:
+                                                                    change_idx = dom_idx[0]
+                                                                    for_reward_val_arr[t + arr_t, next_s, ne_inv, change_idx] = tmp_val
+                                                                    for_reward_set_arr[t + arr_t, next_s, ne_inv, change_idx, :] = tmp_set
+                                                                    for_trace_t_arr[t + arr_t, next_s, ne_inv, change_idx] = t
+                                                                    for_trace_s_arr[t + arr_t, next_s, ne_inv, change_idx] = cur_s
+                                                                    for_trace_inv_arr[t + arr_t, next_s, ne_inv, change_idx] = inv
+                                                                    for_trace_lid_arr[t + arr_t, next_s, ne_inv, change_idx] = label_id
+                                                                    for_calcu_arr[t + arr_t, next_s - 1] = True
+                                                                else:
+                                                                    idx_arr = np.empty(len(dom_idx), dtype=np.int32)
+                                                                    for i, v in enumerate(dom_idx):
+                                                                        idx_arr[i] = v
+                                                                    idx_arr.sort()
+                                                                    idx_arr = idx_arr[::-1]
+                                                                    # first delete
+                                                                    for del_idx in idx_arr:
+                                                                        if del_idx == for_label_num_arr[t + arr_t, next_s, ne_inv] - 1:
+                                                                            for_label_num_arr[t + arr_t, next_s, ne_inv] -= 1
+                                                                        else:
+                                                                            # exchange del_idx and label_num-1
+                                                                            total_num = for_label_num_arr[t + arr_t, next_s, ne_inv]
+                                                                            for_reward_val_arr[t + arr_t, next_s, ne_inv, del_idx] = \
+                                                                                for_reward_val_arr[t + arr_t, next_s, ne_inv, total_num - 1]
+                                                                            for_reward_set_arr[t + arr_t, next_s, ne_inv, del_idx, :] = \
+                                                                                for_reward_set_arr[t + arr_t, next_s, ne_inv, total_num - 1, :]
+                                                                            for_trace_t_arr[t + arr_t, next_s, ne_inv, del_idx] = \
+                                                                                for_trace_t_arr[
+                                                                                    t + arr_t, next_s, ne_inv, total_num - 1]
+                                                                            for_trace_s_arr[t + arr_t, next_s, ne_inv, del_idx] = \
+                                                                                for_trace_s_arr[
+                                                                                    t + arr_t, next_s, ne_inv, total_num - 1]
+                                                                            for_trace_inv_arr[
+                                                                                t + arr_t, next_s, ne_inv, del_idx] = \
+                                                                                for_trace_inv_arr[
+                                                                                    t + arr_t, next_s, ne_inv, total_num - 1]
+                                                                            for_trace_lid_arr[
+                                                                                t + arr_t, next_s, ne_inv, del_idx] = \
+                                                                                for_trace_lid_arr[
+                                                                                    t + arr_t, next_s, ne_inv, total_num - 1]
+                                                                            for_label_num_arr[t + arr_t, next_s, ne_inv] -= 1
+                                                                    # then add
+                                                                    cur_label_num = for_label_num_arr[t + arr_t, next_s, ne_inv]
+                                                                    for_label_num_arr[t + arr_t, next_s, ne_inv] += 1
+                                                                    for_reward_val_arr[t + arr_t, next_s, ne_inv, cur_label_num]= tmp_val
+                                                                    for_reward_set_arr[t + arr_t, next_s, ne_inv, cur_label_num, :] = tmp_set
+                                                                    for_trace_t_arr[t + arr_t, next_s, ne_inv, cur_label_num] = t
+                                                                    for_trace_s_arr[t + arr_t, next_s, ne_inv, cur_label_num] = cur_s
+                                                                    for_trace_inv_arr[t + arr_t, next_s, ne_inv, cur_label_num] = inv
+                                                                    for_trace_lid_arr[t + arr_t, next_s, ne_inv, cur_label_num] = label_id
+                                                                    for_calcu_arr[t + arr_t, next_s - 1] = True
+            if t_repo > least_t_repo:
+                if t == half_way_t:
+                    break
+    # print(for_reward_val_arr[3, 1, 0, 0], for_reward_set_arr[3, 1, 0, 0, :])
+    # backward pass
+    if t_repo > least_t_repo:
+
+        back_label_num_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num), dtype=np.int32)
+        back_reward_val_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.float64)
+        back_reward_set_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num, num_stations + 1),
+                                      dtype=np.bool_)
+        back_reward_ins_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+        back_trace_t_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+        back_trace_s_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+        back_trace_inv_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int8)
+        back_trace_lid_arr = np.zeros((t_repo + 1, num_stations + 1, inv_num, max_label_num), dtype=np.int32)
+        back_calcu_arr = np.zeros((t_repo + 1, num_stations), dtype=np.bool_)
+
+        for t in range(t_repo, -1, -1):
+            if t == t_repo:
+                for last in range(1, num_stations + 1):
+                    for inv in range(inv_num):
+                        best_reward, best_last_inv, best_ins = -np.inf, None, None
+                        for end_inv in inv_arr:
+                            ins = inv_arr[inv] - end_inv
+                            if 0 <= ei_s_arr[
+                                last - 1, cur_t, cur_t + t, x_s_arr[last - 1], x_c_arr[last - 1]] + ins <= cap_s:
+                                before_val = esd_arr[
+                                    last - 1,
+                                    cur_t,
+                                    cur_t + t if cur_t + t < 49 else 48,
+                                    x_s_arr[last - 1],
+                                    x_c_arr[last - 1]]
+                                after_val = esd_arr[
+                                    last - 1,
+                                    cur_t + t if cur_t + t < 36 else 35,
+                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                    round(ei_s_arr[
+                                              last - 1,
+                                              cur_t,
+                                              cur_t + t if cur_t + t < 49 else 48,
+                                              x_s_arr[last - 1],
+                                              x_c_arr[last - 1]] + ins),
+                                    round(ei_c_arr[
+                                              last - 1,
+                                              cur_t,
+                                              cur_t + t if cur_t + t < 49 else 48,
+                                              x_s_arr[last - 1],
+                                              x_c_arr[last - 1]])]
+                                original_val = esd_arr[
+                                    last - 1,
+                                    cur_t,
+                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                    x_s_arr[last - 1],
+                                    x_c_arr[last - 1]]
+                                computed_ESD = before_val + after_val - original_val
+                                new_reward = ORDER_INCOME_UNIT * computed_ESD - dual_station_vec[last - 1]
+                                if new_reward > best_reward:
+                                    best_reward = new_reward
+                                    best_last_inv = end_inv
+                                    best_ins = ins
+                        back_label_num_arr[t, last, inv] = 1
+                        back_reward_val_arr[t, last, inv, 0] = best_reward
+                        back_reward_set_arr[t, last, inv, 0, last] = True
+                        back_reward_ins_arr[t, last, inv, 0] = best_ins
+                        back_trace_t_arr[t, last, inv, 0] = -1
+                        back_trace_s_arr[t, last, inv, 0] = -1
+                        back_trace_inv_arr[t, last, inv, 0] = best_last_inv
+                        back_trace_lid_arr[t, last, inv, 0] = -1
+                        # current values
+                        cur_reward = best_reward
+                        # forward extend
+                        for la in range(1, num_stations + 1):  # trace backward
+                            if la == last:
+                                stay_t = 1
+                                if t - stay_t >= half_way_t + 3:  # (half_way_t + 1) + (minimum travel distance)
+                                    if 0 <= ei_s_arr[
+                                        last - 1, cur_t, cur_t + t - stay_t, x_s_arr[last - 1], x_c_arr[last - 1]] + \
+                                            best_ins <= cap_s:
+                                        before_val = esd_arr[
+                                            last - 1,
+                                            cur_t,
+                                            cur_t + t - stay_t if cur_t + t - stay_t < 49 else 48,
+                                            x_s_arr[last - 1],
+                                            x_c_arr[last - 1]]
+                                        after_val = esd_arr[
+                                            last - 1,
+                                            cur_t + t - stay_t if cur_t + t - stay_t < 36 else 35,
+                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                            round(ei_s_arr[
+                                                      last - 1,
+                                                      cur_t,
+                                                      cur_t + t - stay_t if cur_t + t - stay_t < 49 else 48,
+                                                      x_s_arr[last - 1],
+                                                      x_c_arr[last - 1]] + best_ins),
+                                            round(ei_c_arr[
+                                                      last - 1,
+                                                      cur_t,
+                                                      cur_t + t - stay_t if cur_t + t - stay_t < 49 else 48,
+                                                      x_s_arr[last - 1],
+                                                      x_c_arr[last - 1]])]
+                                        original_val = esd_arr[
+                                            last - 1,
+                                            cur_t,
+                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                            x_s_arr[last - 1],
+                                            x_c_arr[last - 1]]
+                                        computed_ESD = before_val + after_val - original_val
+                                        new_reward = ORDER_INCOME_UNIT * computed_ESD - dual_station_vec[la - 1]
+
+                                        back_label_num_arr[t - stay_t, la, inv] = 1
+                                        back_reward_val_arr[t - stay_t, la, inv, 0] = new_reward
+                                        back_reward_set_arr[t - stay_t, la, inv, 0, last] = True
+                                        back_reward_ins_arr[t - stay_t, la, inv, 0] = best_ins
+                                        back_trace_t_arr[t - stay_t, la, inv, 0] = t
+                                        back_trace_s_arr[t - stay_t, la, inv, 0] = last
+                                        back_trace_inv_arr[t - stay_t, la, inv, 0] = inv
+                                        back_trace_lid_arr[t - stay_t, la, inv, 0] = 0
+                                        back_calcu_arr[t - stay_t, la - 1] = True
+                            else:
+                                arr_t = round(c_mat[la, last])
+                                if t - arr_t >= half_way_t + 3:
+                                    for la_inv in range(inv_num):
+                                        ins = inv_arr[la_inv] - inv_arr[inv]
+                                        if 0 <= ei_s_arr[
+                                            la - 1, cur_t, cur_t + t - arr_t, x_s_arr[la - 1], x_c_arr[
+                                                la - 1]] + ins <= cap_s:
+                                            before_val = esd_arr[
+                                                la - 1,
+                                                cur_t,
+                                                cur_t + t - arr_t if cur_t + t - arr_t < 49 else 48,
+                                                x_s_arr[la - 1],
+                                                x_c_arr[la - 1]]
+                                            after_val = esd_arr[
+                                                la - 1,
+                                                cur_t + t - arr_t if cur_t + t - arr_t < 36 else 35,
+                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                round(ei_s_arr[
+                                                          la - 1,
+                                                          cur_t,
+                                                          cur_t + t - arr_t if cur_t + t - arr_t < 49 else 48,
+                                                          x_s_arr[la - 1],
+                                                          x_c_arr[la - 1]] + ins),
+                                                round(ei_c_arr[
+                                                          la - 1,
+                                                          cur_t,
+                                                          cur_t + t - arr_t if cur_t + t - arr_t < 49 else 48,
+                                                          x_s_arr[la - 1],
+                                                          x_c_arr[la - 1]])]
+                                            original_val = esd_arr[
+                                                la - 1,
+                                                cur_t,
+                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                x_s_arr[la - 1],
+                                                x_c_arr[la - 1]]
+                                            computed_ESD = before_val + after_val - original_val
+                                            new_reward = (cur_reward +
+                                                          ORDER_INCOME_UNIT * computed_ESD -
+                                                          alpha * (arr_t - 1) -
+                                                          dual_station_vec[la - 1])
+                                            if back_label_num_arr[t - arr_t, la, la_inv] == 0:
+                                                back_label_num_arr[t - arr_t, la, la_inv] = 1
+                                                back_reward_val_arr[t - arr_t, la, la_inv, 0] = new_reward
+                                                back_reward_set_arr[t - arr_t, la, la_inv, 0, la] = True
+                                                back_reward_set_arr[t - arr_t, la, la_inv, 0, last] = True
+                                                back_reward_ins_arr[t - arr_t, la, la_inv, 0] = ins
+                                                back_trace_t_arr[t - arr_t, la, la_inv, 0] = t
+                                                back_trace_s_arr[t - arr_t, la, la_inv, 0] = last
+                                                back_trace_inv_arr[t - arr_t, la, la_inv, 0] = inv
+                                                back_trace_lid_arr[t - arr_t, la, la_inv, 0] = 0
+                                                back_calcu_arr[t - arr_t, la - 1] = True
+                                            else:  # dominate rules applied
+                                                tmp_val = new_reward
+                                                tmp_set = back_reward_set_arr[t, last, inv, 0, :].copy()
+                                                tmp_set[la] = True
+                                                tmp_ins = ins
+                                                dom_idx = List()
+                                                for la_label_id in range(back_label_num_arr[t - arr_t, la, la_inv]):
+                                                    la_val = back_reward_val_arr[t - arr_t, la, la_inv, la_label_id]
+                                                    la_set = back_reward_set_arr[t - arr_t, la, la_inv, la_label_id, :].copy()
+                                                    la_ins = back_reward_ins_arr[t - arr_t, la, la_inv, la_label_id]
+
+                                                    # input
+                                                    half_t = half_way_t + 3  # half-time fix
+                                                    tmp_s = la
+                                                    label_t = t - arr_t
+                                                    step_t = label_t - 1
+                                                    val_1, val_2 = tmp_val, la_val
+                                                    set_1, set_2 = tmp_set.copy(), la_set.copy()
+                                                    ins_1, ins_2 = tmp_ins, la_ins
+                                                    # process
+                                                    if not np.any(set_1 > set_2) and val_1 >= val_2:
+                                                        flag = True
+                                                        before_val = esd_arr[
+                                                            tmp_s - 1,
+                                                            cur_t,
+                                                            cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                            x_s_arr[tmp_s - 1],
+                                                            x_c_arr[tmp_s - 1]]
+                                                        after_val = esd_arr[
+                                                            tmp_s - 1,
+                                                            cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            round(ei_s_arr[
+                                                                      tmp_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                      x_s_arr[tmp_s - 1],
+                                                                      x_c_arr[tmp_s - 1]] + ins_1),
+                                                            round(ei_c_arr[
+                                                                      tmp_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                      x_s_arr[tmp_s - 1],
+                                                                      x_c_arr[tmp_s - 1]])]
+                                                        original_val = esd_arr[
+                                                            tmp_s - 1,
+                                                            cur_t,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            x_s_arr[tmp_s - 1],
+                                                            x_c_arr[tmp_s - 1]]
+                                                        old_reward_1 = ORDER_INCOME_UNIT * (
+                                                                before_val + after_val - original_val)
+                                                        after_val = esd_arr[
+                                                            tmp_s - 1,
+                                                            cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            round(ei_s_arr[
+                                                                      tmp_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                      x_s_arr[tmp_s - 1],
+                                                                      x_c_arr[tmp_s - 1]] + ins_2),
+                                                            round(ei_c_arr[
+                                                                      tmp_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                      x_s_arr[tmp_s - 1],
+                                                                      x_c_arr[tmp_s - 1]])]
+                                                        old_reward_2 = ORDER_INCOME_UNIT * (
+                                                                before_val + after_val - original_val)
+                                                        while step_t >= half_t:
+                                                            if 0 <= ei_s_arr[
+                                                                tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                    tmp_s - 1],
+                                                                x_c_arr[tmp_s - 1]] + ins_2 <= cap_s:
+                                                                if 0 <= ei_s_arr[
+                                                                    tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                        tmp_s - 1], x_c_arr[
+                                                                        tmp_s - 1]] + ins_1 <= cap_s:
+                                                                    before_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t,
+                                                                        cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                        x_s_arr[tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]]
+                                                                    after_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        round(ei_s_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]] + ins_1),
+                                                                        round(ei_c_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                    original_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        x_s_arr[tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]]
+                                                                    new_reward_1 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                    after_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        round(ei_s_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]] + ins_2),
+                                                                        round(ei_c_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                    new_reward_2 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                    if val_1 - old_reward_1 + new_reward_1 >= val_2 - old_reward_2 + new_reward_2:
+                                                                        step_t -= 1
+                                                                    else:
+                                                                        flag = False
+                                                                        break
+                                                                else:
+                                                                    flag = False
+                                                                    break
+                                                            else:
+                                                                break
+                                                    else:
+                                                        flag = False
+                                                    # end
+
+                                                    if flag:
+                                                        dom_idx.append(la_label_id)
+                                                    else:
+                                                        # input
+                                                        half_t = half_way_t + 3  # half-time fix
+                                                        tmp_s = la
+                                                        label_t = t - arr_t
+                                                        step_t = label_t - 1
+                                                        val_1, val_2 = la_val, tmp_val
+                                                        set_1, set_2 = la_set.copy(), tmp_set.copy()
+                                                        ins_1, ins_2 = la_ins, tmp_ins
+                                                        # process
+                                                        if not np.any(set_1 > set_2) and val_1 >= val_2:
+                                                            flag = True
+                                                            before_val = esd_arr[
+                                                                tmp_s - 1,
+                                                                cur_t,
+                                                                cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                x_s_arr[tmp_s - 1],
+                                                                x_c_arr[tmp_s - 1]]
+                                                            after_val = esd_arr[
+                                                                tmp_s - 1,
+                                                                cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                round(ei_s_arr[
+                                                                          tmp_s - 1,
+                                                                          cur_t,
+                                                                          cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                          x_s_arr[tmp_s - 1],
+                                                                          x_c_arr[tmp_s - 1]] + ins_1),
+                                                                round(ei_c_arr[
+                                                                          tmp_s - 1,
+                                                                          cur_t,
+                                                                          cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                          x_s_arr[tmp_s - 1],
+                                                                          x_c_arr[tmp_s - 1]])]
+                                                            original_val = esd_arr[
+                                                                tmp_s - 1,
+                                                                cur_t,
+                                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                x_s_arr[tmp_s - 1],
+                                                                x_c_arr[tmp_s - 1]]
+                                                            old_reward_1 = ORDER_INCOME_UNIT * (
+                                                                    before_val + after_val - original_val)
+                                                            after_val = esd_arr[
+                                                                tmp_s - 1,
+                                                                cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                round(ei_s_arr[
+                                                                          tmp_s - 1,
+                                                                          cur_t,
+                                                                          cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                          x_s_arr[tmp_s - 1],
+                                                                          x_c_arr[tmp_s - 1]] + ins_2),
+                                                                round(ei_c_arr[
+                                                                          tmp_s - 1,
+                                                                          cur_t,
+                                                                          cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                          x_s_arr[tmp_s - 1],
+                                                                          x_c_arr[tmp_s - 1]])]
+                                                            old_reward_2 = ORDER_INCOME_UNIT * (
+                                                                    before_val + after_val - original_val)
+                                                            while step_t >= half_t:
+                                                                if 0 <= ei_s_arr[
+                                                                    tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                        tmp_s - 1],
+                                                                    x_c_arr[tmp_s - 1]] + ins_2 <= cap_s:
+                                                                    if 0 <= ei_s_arr[
+                                                                        tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                            tmp_s - 1], x_c_arr[
+                                                                            tmp_s - 1]] + ins_1 <= cap_s:
+                                                                        before_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t,
+                                                                            cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                            x_s_arr[tmp_s - 1],
+                                                                            x_c_arr[tmp_s - 1]]
+                                                                        after_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                            round(ei_s_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]] + ins_1),
+                                                                            round(ei_c_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]])]
+                                                                        original_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t,
+                                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                            x_s_arr[tmp_s - 1],
+                                                                            x_c_arr[tmp_s - 1]]
+                                                                        new_reward_1 = ORDER_INCOME_UNIT * (
+                                                                                before_val + after_val - original_val)
+                                                                        after_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                            round(ei_s_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]] + ins_2),
+                                                                            round(ei_c_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]])]
+                                                                        new_reward_2 = ORDER_INCOME_UNIT * (
+                                                                                before_val + after_val - original_val)
+                                                                        if val_1 - old_reward_1 + new_reward_1 >= val_2 - old_reward_2 + new_reward_2:
+                                                                            step_t -= 1
+                                                                        else:
+                                                                            flag = False
+                                                                            break
+                                                                    else:
+                                                                        flag = False
+                                                                        break
+                                                                else:
+                                                                    break
+                                                        else:
+                                                            flag = False
+                                                        # end
+
+                                                        if flag:
+                                                            assert len(dom_idx) == 0  # dom_idx is empty
+                                                            break
+                                                else:
+                                                    if len(dom_idx) == 0:  # no domination
+                                                        cur_label_num = back_label_num_arr[t - arr_t, la, la_inv]
+                                                        back_label_num_arr[t - arr_t, la, la_inv] = cur_label_num + 1
+                                                        back_reward_val_arr[t - arr_t, la, la_inv, cur_label_num] = tmp_val
+                                                        back_reward_set_arr[t - arr_t, la, la_inv, cur_label_num, :] = tmp_set
+                                                        back_reward_ins_arr[t - arr_t, la, la_inv, cur_label_num] = tmp_ins
+                                                        # assert back_label_num_arr[t, last, inv] == 1
+                                                        back_trace_t_arr[t - arr_t, la, la_inv, cur_label_num] = t
+                                                        back_trace_s_arr[t - arr_t, la, la_inv, cur_label_num] = last
+                                                        back_trace_inv_arr[t - arr_t, la, la_inv, cur_label_num] = inv
+                                                        back_trace_lid_arr[t - arr_t, la, la_inv, cur_label_num] = 0
+                                                        back_calcu_arr[t - arr_t, la - 1] = True
+                                                    elif len(dom_idx) == 1:
+                                                        change_idx = dom_idx[0]
+                                                        back_reward_val_arr[t - arr_t, la, la_inv, change_idx] = tmp_val
+                                                        back_reward_set_arr[t - arr_t, la, la_inv, change_idx, :] = tmp_set
+                                                        back_reward_ins_arr[t - arr_t, la, la_inv, change_idx] = tmp_ins
+                                                        back_trace_t_arr[t - arr_t, la, la_inv, change_idx] = t
+                                                        back_trace_s_arr[t - arr_t, la, la_inv, change_idx] = last
+                                                        back_trace_inv_arr[t - arr_t, la, la_inv, change_idx] = inv
+                                                        back_trace_lid_arr[t - arr_t, la, la_inv, change_idx] = 0
+                                                        back_calcu_arr[t - arr_t, la - 1] = True
+                                                    else:
+                                                        idx_arr = np.empty(len(dom_idx), dtype=np.int32)
+                                                        for i, v in enumerate(dom_idx):
+                                                            idx_arr[i] = v
+                                                        idx_arr.sort()
+                                                        idx_arr = idx_arr[::-1]
+                                                        # first delete
+                                                        for del_idx in idx_arr:
+                                                            if del_idx == back_label_num_arr[t - arr_t, la, la_inv] - 1:
+                                                                back_label_num_arr[t - arr_t, la, la_inv] -= 1
+                                                            else:
+                                                                # exchange del_idx and label_num-1
+                                                                total_num = back_label_num_arr[t - arr_t, la, la_inv]
+                                                                back_reward_val_arr[t - arr_t, la, la_inv, del_idx] = \
+                                                                    back_reward_val_arr[t - arr_t, la, la_inv, total_num - 1]
+                                                                back_reward_set_arr[t - arr_t, la, la_inv, del_idx, :] = \
+                                                                    back_reward_set_arr[t - arr_t, la, la_inv, total_num - 1, :]
+                                                                back_reward_ins_arr[t - arr_t, la, la_inv, del_idx] = \
+                                                                    back_reward_ins_arr[t - arr_t, la, la_inv, total_num - 1]
+                                                                back_trace_t_arr[t - arr_t, la, la_inv, del_idx] = \
+                                                                    back_trace_t_arr[t - arr_t, la, la_inv, total_num - 1]
+                                                                back_trace_s_arr[t - arr_t, la, la_inv, del_idx] = \
+                                                                    back_trace_s_arr[t - arr_t, la, la_inv, total_num - 1]
+                                                                back_trace_inv_arr[t - arr_t, la, la_inv, del_idx] = \
+                                                                    back_trace_inv_arr[t - arr_t, la, la_inv, total_num - 1]
+                                                                back_trace_lid_arr[t - arr_t, la, la_inv, del_idx] = \
+                                                                    back_trace_lid_arr[t - arr_t, la, la_inv, total_num - 1]
+                                                                back_label_num_arr[t - arr_t, la, la_inv] -= 1
+                                                        # then add
+                                                        cur_label_num = back_label_num_arr[t - arr_t, la, la_inv]
+                                                        back_label_num_arr[t - arr_t, la, la_inv] += 1
+                                                        back_reward_val_arr[t - arr_t, la, la_inv, cur_label_num] = tmp_val
+                                                        back_reward_set_arr[t - arr_t, la, la_inv, cur_label_num, :] = tmp_set
+                                                        back_reward_ins_arr[t - arr_t, la, la_inv, cur_label_num] = tmp_ins
+                                                        back_trace_t_arr[t - arr_t, la, la_inv, cur_label_num] = t
+                                                        back_trace_s_arr[t - arr_t, la, la_inv, cur_label_num] = last
+                                                        back_trace_inv_arr[t - arr_t, la, la_inv, cur_label_num] = inv
+                                                        back_trace_lid_arr[t - arr_t, la, la_inv, cur_label_num] = 0
+                                                        back_calcu_arr[t - arr_t, la - 1] = True
+            else:  # t < t_repo
+                for cur_s in range(1, num_stations + 1):
+
+                    if not back_calcu_arr[t, cur_s - 1]:
+                        pass
+                    else:
+                        for inv in range(inv_num):
+                            if back_label_num_arr[t, cur_s, inv] == 0:
+                                pass
+                            else:
+                                for label_id in range(back_label_num_arr[t, cur_s, inv]):
+                                    cur_reward = back_reward_val_arr[t, cur_s, inv, label_id]
+                                    cur_set = back_reward_set_arr[t, cur_s, inv, label_id, :].copy()
+                                    cur_ins = back_reward_ins_arr[t, cur_s, inv, label_id]
+                                    for last_s in range(1, num_stations + 1):
+                                        if last_s == cur_s:
+                                            stay_t = 1
+                                            if t - stay_t >= half_way_t + 3:
+                                                if 0 <= ei_s_arr[
+                                                    last_s - 1, cur_t, cur_t + t - stay_t, x_s_arr[last_s - 1], x_c_arr[
+                                                        last_s - 1]] + cur_ins <= cap_s:
+                                                    before_val = esd_arr[
+                                                        last_s - 1,
+                                                        cur_t,
+                                                        cur_t + t if cur_t + t < 49 else 48,
+                                                        x_s_arr[last_s - 1],
+                                                        x_c_arr[last_s - 1]]
+                                                    after_val = esd_arr[
+                                                        last_s - 1,
+                                                        cur_t + t if cur_t + t < 36 else 35,
+                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                        round(ei_s_arr[
+                                                                  last_s - 1,
+                                                                  cur_t,
+                                                                  cur_t + t if cur_t + t < 49 else 48,
+                                                                  x_s_arr[last_s - 1],
+                                                                  x_c_arr[last_s - 1]] + cur_ins),
+                                                        round(ei_c_arr[
+                                                                  last_s - 1,
+                                                                  cur_t,
+                                                                  cur_t + t if cur_t + t < 49 else 48,
+                                                                  x_s_arr[last_s - 1],
+                                                                  x_c_arr[last_s - 1]])]
+                                                    original_val = esd_arr[
+                                                        last_s - 1,
+                                                        cur_t,
+                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                        x_s_arr[last_s - 1],
+                                                        x_c_arr[last_s - 1]]
+                                                    computed_ESD = before_val + after_val - original_val
+                                                    old_repo_reward = ORDER_INCOME_UNIT * computed_ESD
+                                                    before_val = esd_arr[
+                                                        last_s - 1,
+                                                        cur_t,
+                                                        cur_t + t - stay_t if cur_t + t - stay_t < 49 else 48,
+                                                        x_s_arr[last_s - 1],
+                                                        x_c_arr[last_s - 1]]
+                                                    after_val = esd_arr[
+                                                        last_s - 1,
+                                                        cur_t + t - stay_t if cur_t + t - stay_t < 36 else 35,
+                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                        round(ei_s_arr[
+                                                                  last_s - 1,
+                                                                  cur_t,
+                                                                  cur_t + t - stay_t if cur_t + t - stay_t < 49 else 48,
+                                                                  x_s_arr[last_s - 1],
+                                                                  x_c_arr[last_s - 1]] + cur_ins),
+                                                        round(ei_c_arr[
+                                                                  last_s - 1,
+                                                                  cur_t,
+                                                                  cur_t + t - stay_t if cur_t + t - stay_t < 49 else 48,
+                                                                  x_s_arr[last_s - 1],
+                                                                  x_c_arr[last_s - 1]])]
+                                                    new_repo_reward = ORDER_INCOME_UNIT * (before_val + after_val - original_val)
+                                                    new_reward = cur_reward - old_repo_reward + new_repo_reward
+                                                    if back_label_num_arr[t - stay_t, last_s, inv] == 0:
+                                                        back_label_num_arr[t - stay_t, last_s, inv] = 1
+                                                        back_reward_val_arr[t - stay_t, last_s, inv, 0] = new_reward
+                                                        back_reward_set_arr[t - stay_t, last_s, inv, 0, :] = cur_set
+                                                        back_reward_ins_arr[t - stay_t, last_s, inv, 0] = cur_ins
+                                                        back_trace_t_arr[t - stay_t, last_s, inv, 0] = t
+                                                        back_trace_s_arr[t - stay_t, last_s, inv, 0] = cur_s
+                                                        back_trace_inv_arr[t - stay_t, last_s, inv, 0] = inv
+                                                        back_trace_lid_arr[t - stay_t, last_s, inv, 0] = label_id
+                                                        back_calcu_arr[t - stay_t, last_s - 1] = True
+                                                    else:  # dominate rules applied
+                                                        tmp_val, tmp_set, tmp_ins = new_reward, cur_set.copy(), cur_ins
+                                                        dom_idx = List()
+                                                        for last_label_id in range(back_label_num_arr[t - stay_t, last_s, inv]):
+                                                            la_val = back_reward_val_arr[t - stay_t, last_s, inv, last_label_id]
+                                                            la_set = back_reward_set_arr[t - stay_t, last_s, inv, last_label_id, :].copy()
+                                                            la_ins = back_reward_ins_arr[t - stay_t, last_s, inv, last_label_id]
+
+                                                            # input
+                                                            half_t = half_way_t + 3  # half-time fix
+                                                            tmp_s = last_s
+                                                            label_t = t - stay_t
+                                                            step_t = label_t - 1
+                                                            val_1, val_2 = tmp_val, la_val
+                                                            set_1, set_2 = tmp_set.copy(), la_set.copy()
+                                                            ins_1, ins_2 = tmp_ins, la_ins
+                                                            # process
+                                                            if not np.any(set_1 > set_2) and val_1 >= val_2:
+                                                                flag = True
+                                                                before_val = esd_arr[
+                                                                    tmp_s - 1,
+                                                                    cur_t,
+                                                                    cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                    x_s_arr[tmp_s - 1],
+                                                                    x_c_arr[tmp_s - 1]]
+                                                                after_val = esd_arr[
+                                                                    tmp_s - 1,
+                                                                    cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                    round(ei_s_arr[
+                                                                              tmp_s - 1,
+                                                                              cur_t,
+                                                                              cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                              x_s_arr[tmp_s - 1],
+                                                                              x_c_arr[tmp_s - 1]] + ins_1),
+                                                                    round(ei_c_arr[
+                                                                              tmp_s - 1,
+                                                                              cur_t,
+                                                                              cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                              x_s_arr[tmp_s - 1],
+                                                                              x_c_arr[tmp_s - 1]])]
+                                                                original_val = esd_arr[
+                                                                    tmp_s - 1,
+                                                                    cur_t,
+                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                    x_s_arr[tmp_s - 1],
+                                                                    x_c_arr[tmp_s - 1]]
+                                                                old_reward_1 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                after_val = esd_arr[
+                                                                    tmp_s - 1,
+                                                                    cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                    round(ei_s_arr[
+                                                                              tmp_s - 1,
+                                                                              cur_t,
+                                                                              cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                              x_s_arr[tmp_s - 1],
+                                                                              x_c_arr[tmp_s - 1]] + ins_2),
+                                                                    round(ei_c_arr[
+                                                                              tmp_s - 1,
+                                                                              cur_t,
+                                                                              cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                              x_s_arr[tmp_s - 1],
+                                                                              x_c_arr[tmp_s - 1]])]
+                                                                old_reward_2 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                while step_t >= half_t:
+                                                                    if 0 <= ei_s_arr[
+                                                                        tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                            tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]] + ins_2 <= cap_s:
+                                                                        if 0 <= ei_s_arr[
+                                                                            tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                                tmp_s - 1], x_c_arr[
+                                                                                tmp_s - 1]] + ins_1 <= cap_s:
+                                                                            before_val = esd_arr[
+                                                                                tmp_s - 1,
+                                                                                cur_t,
+                                                                                cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                x_s_arr[tmp_s - 1],
+                                                                                x_c_arr[tmp_s - 1]]
+                                                                            after_val = esd_arr[
+                                                                                tmp_s - 1,
+                                                                                cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                round(ei_s_arr[
+                                                                                          tmp_s - 1,
+                                                                                          cur_t,
+                                                                                          cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                          x_s_arr[tmp_s - 1],
+                                                                                          x_c_arr[tmp_s - 1]] + ins_1),
+                                                                                round(ei_c_arr[
+                                                                                          tmp_s - 1,
+                                                                                          cur_t,
+                                                                                          cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                          x_s_arr[tmp_s - 1],
+                                                                                          x_c_arr[tmp_s - 1]])]
+                                                                            original_val = esd_arr[
+                                                                                tmp_s - 1,
+                                                                                cur_t,
+                                                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                x_s_arr[tmp_s - 1],
+                                                                                x_c_arr[tmp_s - 1]]
+                                                                            new_reward_1 = ORDER_INCOME_UNIT * (
+                                                                                        before_val + after_val - original_val)
+                                                                            after_val = esd_arr[
+                                                                                tmp_s - 1,
+                                                                                cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                round(ei_s_arr[
+                                                                                          tmp_s - 1,
+                                                                                          cur_t,
+                                                                                          cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                          x_s_arr[tmp_s - 1],
+                                                                                          x_c_arr[tmp_s - 1]] + ins_2),
+                                                                                round(ei_c_arr[
+                                                                                          tmp_s - 1,
+                                                                                          cur_t,
+                                                                                          cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                          x_s_arr[tmp_s - 1],
+                                                                                          x_c_arr[tmp_s - 1]])]
+                                                                            new_reward_2 = ORDER_INCOME_UNIT * (
+                                                                                        before_val + after_val - original_val)
+                                                                            if val_1 - old_reward_1 + new_reward_1 >= val_2 - old_reward_2 + new_reward_2:
+                                                                                step_t -= 1
+                                                                            else:
+                                                                                flag = False
+                                                                                break
+                                                                        else:
+                                                                            flag = False
+                                                                            break
+                                                                    else:
+                                                                        break
+                                                            else:
+                                                                flag = False
+                                                            # end
+
+                                                            if flag:
+                                                                dom_idx.append(last_label_id)
+                                                            else:
+                                                                # input
+                                                                half_t = half_way_t + 3  # half-time fix
+                                                                tmp_s = last_s
+                                                                label_t = t - stay_t
+                                                                step_t = label_t - 1
+                                                                val_1, val_2 = la_val, tmp_val
+                                                                set_1, set_2 = la_set.copy(), tmp_set.copy()
+                                                                ins_1, ins_2 = la_ins, tmp_ins
+                                                                # process
+                                                                if not np.any(set_1 > set_2) and val_1 >= val_2:
+                                                                    flag = True
+                                                                    before_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t,
+                                                                        cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                        x_s_arr[tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]]
+                                                                    after_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        round(ei_s_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]] + ins_1),
+                                                                        round(ei_c_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                    original_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        x_s_arr[tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]]
+                                                                    old_reward_1 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                    after_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        round(ei_s_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]] + ins_2),
+                                                                        round(ei_c_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                    old_reward_2 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                    while step_t >= half_t:
+                                                                        if 0 <= ei_s_arr[
+                                                                            tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                                tmp_s - 1],
+                                                                            x_c_arr[tmp_s - 1]] + ins_2 <= cap_s:
+                                                                            if 0 <= ei_s_arr[
+                                                                                tmp_s - 1, cur_t, cur_t + step_t,
+                                                                                x_s_arr[
+                                                                                    tmp_s - 1], x_c_arr[
+                                                                                    tmp_s - 1]] + ins_1 <= cap_s:
+                                                                                before_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t,
+                                                                                    cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                    x_s_arr[tmp_s - 1],
+                                                                                    x_c_arr[tmp_s - 1]]
+                                                                                after_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                    round(ei_s_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[
+                                                                                                  tmp_s - 1]] + ins_1),
+                                                                                    round(ei_c_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[tmp_s - 1]])]
+                                                                                original_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t,
+                                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                    x_s_arr[tmp_s - 1],
+                                                                                    x_c_arr[tmp_s - 1]]
+                                                                                new_reward_1 = ORDER_INCOME_UNIT * (
+                                                                                        before_val + after_val - original_val)
+                                                                                after_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                    round(ei_s_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[
+                                                                                                  tmp_s - 1]] + ins_2),
+                                                                                    round(ei_c_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[tmp_s - 1]])]
+                                                                                new_reward_2 = ORDER_INCOME_UNIT * (
+                                                                                        before_val + after_val - original_val)
+                                                                                if val_1 - old_reward_1 + new_reward_1 >= val_2 - old_reward_2 + new_reward_2:
+                                                                                    step_t -= 1
+                                                                                else:
+                                                                                    flag = False
+                                                                                    break
+                                                                            else:
+                                                                                flag = False
+                                                                                break
+                                                                        else:
+                                                                            break
+                                                                else:
+                                                                    flag = False
+                                                                # end
+
+                                                                if flag:
+                                                                    assert len(dom_idx) == 0  # dom_idx is empty
+                                                                    break
+                                                        else:
+                                                            if len(dom_idx) == 0:  # no domination
+                                                                cur_label_num = back_label_num_arr[t - stay_t, last_s, inv]
+                                                                back_label_num_arr[t - stay_t, last_s, inv] = cur_label_num + 1
+                                                                back_reward_val_arr[t - stay_t, last_s, inv, cur_label_num] = tmp_val
+                                                                back_reward_set_arr[t - stay_t, last_s, inv, cur_label_num, :] = tmp_set
+                                                                back_reward_ins_arr[t - stay_t, last_s, inv, cur_label_num] = tmp_ins
+                                                                back_trace_t_arr[t - stay_t, last_s, inv, cur_label_num] = t
+                                                                back_trace_s_arr[t - stay_t, last_s, inv, cur_label_num] = cur_s
+                                                                back_trace_inv_arr[t - stay_t, last_s, inv, cur_label_num] = inv
+                                                                back_trace_lid_arr[t - stay_t, last_s, inv, cur_label_num] = label_id
+                                                                back_calcu_arr[t - stay_t, last_s - 1] = True
+                                                            elif len(dom_idx) == 1:
+                                                                change_idx = dom_idx[0]
+                                                                back_reward_val_arr[t - stay_t, last_s, inv, change_idx] = tmp_val
+                                                                back_reward_set_arr[t - stay_t, last_s, inv, change_idx, :] = tmp_set
+                                                                back_reward_ins_arr[t - stay_t, last_s, inv, change_idx] = tmp_ins
+                                                                back_trace_t_arr[t - stay_t, last_s, inv, change_idx] = t
+                                                                back_trace_s_arr[t - stay_t, last_s, inv, change_idx] = cur_s
+                                                                back_trace_inv_arr[t - stay_t, last_s, inv, change_idx] = inv
+                                                                back_trace_lid_arr[t - stay_t, last_s, inv, change_idx] = label_id
+                                                                back_calcu_arr[t - stay_t, last_s - 1] = True
+                                                            else:
+                                                                idx_arr = np.empty(len(dom_idx), dtype=np.int32)
+                                                                for i, v in enumerate(dom_idx):
+                                                                    idx_arr[i] = v
+                                                                idx_arr.sort()
+                                                                idx_arr = idx_arr[::-1]
+                                                                # first delete
+                                                                for del_idx in idx_arr:
+                                                                    if del_idx == back_label_num_arr[t - stay_t, last_s, inv] - 1:
+                                                                        back_label_num_arr[t - stay_t, last_s, inv] -= 1
+                                                                    else:
+                                                                        # exchange del_idx and label_num-1
+                                                                        total_num = back_label_num_arr[t - stay_t, last_s, inv]
+                                                                        back_reward_val_arr[t - stay_t, last_s, inv, del_idx] = \
+                                                                            back_reward_val_arr[t - stay_t, last_s, inv, total_num - 1]
+                                                                        back_reward_set_arr[t - stay_t, last_s, inv, del_idx, :] = \
+                                                                            back_reward_set_arr[t - stay_t, last_s, inv, total_num - 1, :]
+                                                                        back_reward_ins_arr[t - stay_t, last_s, inv, del_idx] = \
+                                                                            back_reward_ins_arr[t - stay_t, last_s, inv, total_num - 1]
+                                                                        back_trace_t_arr[t - stay_t, last_s, inv, del_idx] = \
+                                                                            back_trace_t_arr[t - stay_t, last_s, inv, total_num - 1]
+                                                                        back_trace_s_arr[t - stay_t, last_s, inv, del_idx] = \
+                                                                            back_trace_s_arr[t - stay_t, last_s, inv, total_num - 1]
+                                                                        back_trace_inv_arr[t - stay_t, last_s, inv, del_idx] = \
+                                                                            back_trace_inv_arr[t - stay_t, last_s, inv, total_num - 1]
+                                                                        back_trace_lid_arr[t - stay_t, last_s, inv, del_idx] = \
+                                                                            back_trace_lid_arr[t - stay_t, last_s, inv, total_num - 1]
+                                                                        back_label_num_arr[t - stay_t, last_s, inv] -= 1
+                                                                # then add
+                                                                cur_label_num = back_label_num_arr[t - stay_t, last_s, inv]
+                                                                back_label_num_arr[t - stay_t, last_s, inv] += 1
+                                                                back_reward_val_arr[t - stay_t, last_s, inv, cur_label_num] = tmp_val
+                                                                back_reward_set_arr[t - stay_t, last_s, inv, cur_label_num, :] = tmp_set
+                                                                back_reward_ins_arr[t - stay_t, last_s, inv, cur_label_num] = tmp_ins
+                                                                back_trace_t_arr[t - stay_t, last_s, inv, cur_label_num] = t
+                                                                back_trace_s_arr[t - stay_t, last_s, inv, cur_label_num] = cur_s
+                                                                back_trace_inv_arr[t - stay_t, last_s, inv, cur_label_num] = inv
+                                                                back_trace_lid_arr[t - stay_t, last_s, inv, cur_label_num] = label_id
+                                                                back_calcu_arr[t - stay_t, last_s - 1] = True
+                                        elif cur_set[last_s]:  # already visited
+                                            pass
+                                        else:
+                                            arr_t = round(c_mat[last_s, cur_s])
+                                            if t - arr_t >= half_way_t + 3:
+                                                for last_inv in range(inv_num):
+                                                    ins = inv_arr[last_inv] - inv_arr[inv]
+                                                    if 0 <= ei_s_arr[
+                                                        last_s - 1, cur_t, cur_t + t - arr_t, x_s_arr[last_s - 1],
+                                                        x_c_arr[last_s - 1]] + ins <= cap_s:
+                                                        before_val = esd_arr[
+                                                            last_s - 1,
+                                                            cur_t,
+                                                            cur_t + t - arr_t if cur_t + t - arr_t < 49 else 48,
+                                                            x_s_arr[last_s - 1],
+                                                            x_c_arr[last_s - 1]]
+                                                        after_val = esd_arr[
+                                                            last_s - 1,
+                                                            cur_t + t - arr_t if cur_t + t - arr_t < 36 else 35,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            round(ei_s_arr[
+                                                                      last_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + t - arr_t if cur_t + t - arr_t < 49 else 48,
+                                                                      x_s_arr[last_s - 1],
+                                                                      x_c_arr[last_s - 1]] + ins),
+                                                            round(ei_c_arr[
+                                                                      last_s - 1,
+                                                                      cur_t,
+                                                                      cur_t + t - arr_t if cur_t + t - arr_t < 49 else 48,
+                                                                      x_s_arr[last_s - 1],
+                                                                      x_c_arr[last_s - 1]])]
+                                                        original_val = esd_arr[
+                                                            last_s - 1,
+                                                            cur_t,
+                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                            x_s_arr[last_s - 1],
+                                                            x_c_arr[last_s - 1]]
+                                                        computed_ESD = before_val + after_val - original_val
+                                                        new_reward = (cur_reward +
+                                                                      ORDER_INCOME_UNIT * computed_ESD -
+                                                                      alpha * (arr_t - 1) -
+                                                                      dual_station_vec[last_s - 1])
+                                                        if back_label_num_arr[t - arr_t, last_s, last_inv] == 0:
+                                                            back_label_num_arr[t - arr_t, last_s, last_inv] = 1
+                                                            back_reward_val_arr[t - arr_t, last_s, last_inv, 0] = new_reward
+                                                            back_reward_set_arr[t - arr_t, last_s, last_inv, 0, :] = cur_set
+                                                            back_reward_set_arr[t - arr_t, last_s, last_inv, 0, last_s] = True
+                                                            back_reward_ins_arr[t - arr_t, last_s, last_inv, 0] = ins
+                                                            back_trace_t_arr[t - arr_t, last_s, last_inv, 0] = t
+                                                            back_trace_s_arr[t - arr_t, last_s, last_inv, 0] = cur_s
+                                                            back_trace_inv_arr[t - arr_t, last_s, last_inv, 0] = inv
+                                                            back_trace_lid_arr[t - arr_t, last_s, last_inv, 0] = label_id
+                                                            back_calcu_arr[t - arr_t, last_s - 1] = True
+                                                        else:  # dominate rules applied
+                                                            tmp_val, tmp_ins = new_reward, ins
+                                                            tmp_set = cur_set.copy()
+                                                            tmp_set[last_s] = True
+                                                            dom_idx = List()
+                                                            for last_label_id in range(back_label_num_arr[t - arr_t, last_s, last_inv]):
+                                                                la_val = back_reward_val_arr[t - arr_t, last_s, last_inv, last_label_id]
+                                                                la_set = back_reward_set_arr[t - arr_t, last_s, last_inv, last_label_id, :].copy()
+                                                                la_ins = back_reward_ins_arr[t - arr_t, last_s, last_inv, last_label_id]
+
+                                                                # input
+                                                                half_t = half_way_t + 3  # half-time fix
+                                                                tmp_s = last_s
+                                                                label_t = t - arr_t
+                                                                step_t = label_t - 1
+                                                                val_1, val_2 = tmp_val, la_val
+                                                                set_1, set_2 = tmp_set.copy(), la_set.copy()
+                                                                ins_1, ins_2 = tmp_ins, la_ins
+                                                                # process
+                                                                if not np.any(set_1 > set_2) and val_1 >= val_2:
+                                                                    flag = True
+                                                                    before_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t,
+                                                                        cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                        x_s_arr[tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]]
+                                                                    after_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        round(ei_s_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]] + ins_1),
+                                                                        round(ei_c_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                    original_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        x_s_arr[tmp_s - 1],
+                                                                        x_c_arr[tmp_s - 1]]
+                                                                    old_reward_1 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                    after_val = esd_arr[
+                                                                        tmp_s - 1,
+                                                                        cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                        round(ei_s_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]] + ins_2),
+                                                                        round(ei_c_arr[
+                                                                                  tmp_s - 1,
+                                                                                  cur_t,
+                                                                                  cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                  x_s_arr[tmp_s - 1],
+                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                    old_reward_2 = ORDER_INCOME_UNIT * (
+                                                                            before_val + after_val - original_val)
+                                                                    while step_t >= half_t:
+                                                                        if 0 <= ei_s_arr[
+                                                                            tmp_s - 1, cur_t, cur_t + step_t, x_s_arr[
+                                                                                tmp_s - 1],
+                                                                            x_c_arr[tmp_s - 1]] + ins_2 <= cap_s:
+                                                                            if 0 <= ei_s_arr[
+                                                                                tmp_s - 1, cur_t, cur_t + step_t,
+                                                                                x_s_arr[
+                                                                                    tmp_s - 1], x_c_arr[
+                                                                                    tmp_s - 1]] + ins_1 <= cap_s:
+                                                                                before_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t,
+                                                                                    cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                    x_s_arr[tmp_s - 1],
+                                                                                    x_c_arr[tmp_s - 1]]
+                                                                                after_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                    round(ei_s_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[
+                                                                                                  tmp_s - 1]] + ins_1),
+                                                                                    round(ei_c_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[tmp_s - 1]])]
+                                                                                original_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t,
+                                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                    x_s_arr[tmp_s - 1],
+                                                                                    x_c_arr[tmp_s - 1]]
+                                                                                new_reward_1 = ORDER_INCOME_UNIT * (
+                                                                                        before_val + after_val - original_val)
+                                                                                after_val = esd_arr[
+                                                                                    tmp_s - 1,
+                                                                                    cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                    cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                    round(ei_s_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[
+                                                                                                  tmp_s - 1]] + ins_2),
+                                                                                    round(ei_c_arr[
+                                                                                              tmp_s - 1,
+                                                                                              cur_t,
+                                                                                              cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                              x_s_arr[tmp_s - 1],
+                                                                                              x_c_arr[tmp_s - 1]])]
+                                                                                new_reward_2 = ORDER_INCOME_UNIT * (
+                                                                                        before_val + after_val - original_val)
+                                                                                if val_1 - old_reward_1 + new_reward_1 >= val_2 - old_reward_2 + new_reward_2:
+                                                                                    step_t -= 1
+                                                                                else:
+                                                                                    flag = False
+                                                                                    break
+                                                                            else:
+                                                                                flag = False
+                                                                                break
+                                                                        else:
+                                                                            break
+                                                                else:
+                                                                    flag = False
+                                                                # end
+
+                                                                if flag:
+                                                                    dom_idx.append(last_label_id)
+                                                                else:
+                                                                    # input
+                                                                    half_t = half_way_t + 3  # half-time fix
+                                                                    tmp_s = last_s
+                                                                    label_t = t - arr_t
+                                                                    step_t = label_t - 1
+                                                                    val_1, val_2 = la_val, tmp_val
+                                                                    set_1, set_2 = la_set.copy(), tmp_set.copy()
+                                                                    ins_1, ins_2 = la_ins, tmp_ins
+                                                                    # process
+                                                                    if not np.any(set_1 > set_2) and val_1 >= val_2:
+                                                                        flag = True
+                                                                        before_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t,
+                                                                            cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                            x_s_arr[tmp_s - 1],
+                                                                            x_c_arr[tmp_s - 1]]
+                                                                        after_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                            round(ei_s_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]] + ins_1),
+                                                                            round(ei_c_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]])]
+                                                                        original_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t,
+                                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                            x_s_arr[tmp_s - 1],
+                                                                            x_c_arr[tmp_s - 1]]
+                                                                        old_reward_1 = ORDER_INCOME_UNIT * (
+                                                                                before_val + after_val - original_val)
+                                                                        after_val = esd_arr[
+                                                                            tmp_s - 1,
+                                                                            cur_t + label_t if cur_t + label_t < 36 else 35,
+                                                                            cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                            round(ei_s_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]] + ins_2),
+                                                                            round(ei_c_arr[
+                                                                                      tmp_s - 1,
+                                                                                      cur_t,
+                                                                                      cur_t + label_t if cur_t + label_t < 49 else 48,
+                                                                                      x_s_arr[tmp_s - 1],
+                                                                                      x_c_arr[tmp_s - 1]])]
+                                                                        old_reward_2 = ORDER_INCOME_UNIT * (
+                                                                                before_val + after_val - original_val)
+                                                                        while step_t >= half_t:
+                                                                            if 0 <= ei_s_arr[
+                                                                                tmp_s - 1, cur_t, cur_t + step_t,
+                                                                                x_s_arr[
+                                                                                    tmp_s - 1],
+                                                                                x_c_arr[tmp_s - 1]] + ins_2 <= cap_s:
+                                                                                if 0 <= ei_s_arr[
+                                                                                    tmp_s - 1, cur_t, cur_t + step_t,
+                                                                                    x_s_arr[
+                                                                                        tmp_s - 1], x_c_arr[
+                                                                                        tmp_s - 1]] + ins_1 <= cap_s:
+                                                                                    before_val = esd_arr[
+                                                                                        tmp_s - 1,
+                                                                                        cur_t,
+                                                                                        cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                        x_s_arr[tmp_s - 1],
+                                                                                        x_c_arr[tmp_s - 1]]
+                                                                                    after_val = esd_arr[
+                                                                                        tmp_s - 1,
+                                                                                        cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                        round(ei_s_arr[
+                                                                                                  tmp_s - 1,
+                                                                                                  cur_t,
+                                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                                  x_s_arr[tmp_s - 1],
+                                                                                                  x_c_arr[
+                                                                                                      tmp_s - 1]] + ins_1),
+                                                                                        round(ei_c_arr[
+                                                                                                  tmp_s - 1,
+                                                                                                  cur_t,
+                                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                                  x_s_arr[tmp_s - 1],
+                                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                                    original_val = esd_arr[
+                                                                                        tmp_s - 1,
+                                                                                        cur_t,
+                                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                        x_s_arr[tmp_s - 1],
+                                                                                        x_c_arr[tmp_s - 1]]
+                                                                                    new_reward_1 = ORDER_INCOME_UNIT * (
+                                                                                            before_val + after_val - original_val)
+                                                                                    after_val = esd_arr[
+                                                                                        tmp_s - 1,
+                                                                                        cur_t + step_t if cur_t + step_t < 36 else 35,
+                                                                                        cur_t + t_f if cur_t + t_f < 49 else 48,
+                                                                                        round(ei_s_arr[
+                                                                                                  tmp_s - 1,
+                                                                                                  cur_t,
+                                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                                  x_s_arr[tmp_s - 1],
+                                                                                                  x_c_arr[
+                                                                                                      tmp_s - 1]] + ins_2),
+                                                                                        round(ei_c_arr[
+                                                                                                  tmp_s - 1,
+                                                                                                  cur_t,
+                                                                                                  cur_t + step_t if cur_t + step_t < 49 else 48,
+                                                                                                  x_s_arr[tmp_s - 1],
+                                                                                                  x_c_arr[tmp_s - 1]])]
+                                                                                    new_reward_2 = ORDER_INCOME_UNIT * (
+                                                                                            before_val + after_val - original_val)
+                                                                                    if val_1 - old_reward_1 + new_reward_1 >= val_2 - old_reward_2 + new_reward_2:
+                                                                                        step_t -= 1
+                                                                                    else:
+                                                                                        flag = False
+                                                                                        break
+                                                                                else:
+                                                                                    flag = False
+                                                                                    break
+                                                                            else:
+                                                                                break
+                                                                    else:
+                                                                        flag = False
+                                                                    # end
+
+                                                                    if flag:
+                                                                        assert len(dom_idx) == 0
+                                                                        break
+                                                            else:
+                                                                if len(dom_idx) == 0:  # no domination
+                                                                    cur_label_num = back_label_num_arr[t - arr_t, last_s, last_inv]
+                                                                    back_label_num_arr[t - arr_t, last_s, last_inv] = cur_label_num + 1
+                                                                    back_reward_val_arr[t - arr_t, last_s, last_inv, cur_label_num] = tmp_val
+                                                                    back_reward_set_arr[t - arr_t, last_s, last_inv, cur_label_num, :] = tmp_set
+                                                                    back_reward_ins_arr[t - arr_t, last_s, last_inv, cur_label_num] = tmp_ins
+                                                                    back_trace_t_arr[t - arr_t, last_s, last_inv, cur_label_num] = t
+                                                                    back_trace_s_arr[t - arr_t, last_s, last_inv, cur_label_num] = cur_s
+                                                                    back_trace_inv_arr[t - arr_t, last_s, last_inv, cur_label_num] = inv
+                                                                    back_trace_lid_arr[t - arr_t, last_s, last_inv, cur_label_num] = label_id
+                                                                    back_calcu_arr[t - arr_t, last_s - 1] = True
+                                                                elif len(dom_idx) == 1:
+                                                                    change_idx = dom_idx[0]
+                                                                    back_reward_val_arr[t - arr_t, last_s, last_inv, change_idx] = tmp_val
+                                                                    back_reward_set_arr[t - arr_t, last_s, last_inv, change_idx, :] = tmp_set
+                                                                    back_reward_ins_arr[t - arr_t, last_s, last_inv, change_idx] = tmp_ins
+                                                                    back_trace_t_arr[t - arr_t, last_s, last_inv, change_idx] = t
+                                                                    back_trace_s_arr[t - arr_t, last_s, last_inv, change_idx] = cur_s
+                                                                    back_trace_inv_arr[t - arr_t, last_s, last_inv, change_idx] = inv
+                                                                    back_trace_lid_arr[t - arr_t, last_s, last_inv, change_idx] = label_id
+                                                                    back_calcu_arr[t - arr_t, last_s - 1] = True
+                                                                else:
+                                                                    idx_arr = np.empty(len(dom_idx), dtype=np.int32)
+                                                                    for i, v in enumerate(dom_idx):
+                                                                        idx_arr[i] = v
+                                                                    idx_arr.sort()
+                                                                    idx_arr = idx_arr[::-1]
+                                                                    # first delete
+                                                                    for del_idx in idx_arr:
+                                                                        if del_idx == back_label_num_arr[t - arr_t, last_s, last_inv] - 1:
+                                                                            back_label_num_arr[t - arr_t, last_s, last_inv] -= 1
+                                                                        else:
+                                                                            # exchange del_idx and label_num-1
+                                                                            total_num = back_label_num_arr[t - arr_t, last_s, last_inv]
+                                                                            back_reward_val_arr[t - arr_t, last_s, last_inv, del_idx] = \
+                                                                                back_reward_val_arr[t - arr_t, last_s, last_inv, total_num - 1]
+                                                                            back_reward_set_arr[t - arr_t, last_s, last_inv, del_idx, :] = \
+                                                                                back_reward_set_arr[t - arr_t, last_s, last_inv, total_num - 1, :]
+                                                                            back_reward_ins_arr[t - arr_t, last_s, last_inv, del_idx] = \
+                                                                                back_reward_ins_arr[t - arr_t, last_s, last_inv, total_num - 1]
+                                                                            back_trace_t_arr[t - arr_t, last_s, last_inv, del_idx] = \
+                                                                                back_trace_t_arr[t - arr_t, last_s, last_inv, total_num - 1]
+                                                                            back_trace_s_arr[t - arr_t, last_s, last_inv, del_idx] = \
+                                                                                back_trace_s_arr[t - arr_t, last_s, last_inv, total_num - 1]
+                                                                            back_trace_inv_arr[t - arr_t, last_s, last_inv, del_idx] = \
+                                                                                back_trace_inv_arr[t - arr_t, last_s, last_inv, total_num - 1]
+                                                                            back_trace_lid_arr[t - arr_t, last_s, last_inv, del_idx] = \
+                                                                                back_trace_lid_arr[t - arr_t, last_s, last_inv, total_num - 1]
+                                                                            back_label_num_arr[t - arr_t, last_s, last_inv] -= 1
+                                                                    # then add
+                                                                    cur_label_num = back_label_num_arr[t - arr_t, last_s, last_inv]
+                                                                    back_label_num_arr[t - arr_t, last_s, last_inv] += 1
+                                                                    back_reward_val_arr[t - arr_t, last_s, last_inv, cur_label_num] = tmp_val
+                                                                    back_reward_set_arr[t - arr_t, last_s, last_inv, cur_label_num, :] = tmp_set
+                                                                    back_reward_ins_arr[t - arr_t, last_s, last_inv, cur_label_num] = tmp_ins
+                                                                    back_trace_t_arr[t - arr_t, last_s, last_inv, cur_label_num] = t
+                                                                    back_trace_s_arr[t - arr_t, last_s, last_inv, cur_label_num] = cur_s
+                                                                    back_trace_inv_arr[t - arr_t, last_s, last_inv, cur_label_num] = inv
+                                                                    back_trace_lid_arr[t - arr_t, last_s, last_inv, cur_label_num] = label_id
+                                                                    back_calcu_arr[t - arr_t, last_s - 1] = True
+                if t == half_way_t + 2:
+                    break
+        # join
+        max_rewards = List()
+        max_labels = List()
+        for for_t in range(half_way_t + 1, t_repo + 1):
+            for s in range(num_stations + 1):
+                if s == 0:
+                    if for_label_num_arr[for_t, s, 0] > 0:
+                        for for_label_id in range(for_label_num_arr[for_t, s, 0]):
+                            for_val = for_reward_val_arr[for_t, s, 0, for_label_id]
+                            for_set = for_reward_set_arr[for_t, s, 0, for_label_id, :].copy()
+                            for back_s in range(num_stations + 1):
+                                if back_s == 0:
+                                    max_rewards.append(for_val)
+                                    max_labels.append(((for_t, s, 0, for_label_id), (for_t, s, 0, for_label_id)))
+                                else:
+                                    if not for_set[back_s]:
+                                        for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
+                                            if back_label_num_arr[back_t, back_s, 0] > 0:
+                                                for back_label_id in range(back_label_num_arr[back_t, back_s, 0]):
+                                                    back_val = back_reward_val_arr[back_t, back_s, 0, back_label_id]
+                                                    back_set = back_reward_set_arr[back_t, back_s, 0, back_label_id, :].copy()
+                                                    if back_val > 0 and not np.any(for_set & back_set):
+                                                        max_rewards.append(for_val + back_val - alpha * round(c_mat[s, back_s]))
+                                                        max_labels.append(((for_t, s, 0, for_label_id),
+                                                                           (back_t, back_s, 0, back_label_id)))
+                else:  # s > 0
+                    for inv in range(inv_num):
+                        if for_label_num_arr[for_t, s, inv] > 0:
+                            for for_label_id in range(for_label_num_arr[for_t, s, inv]):
+                                for_val = for_reward_val_arr[for_t, s, inv, for_label_id]
+                                for_set = for_reward_set_arr[for_t, s, inv, for_label_id, :].copy()
+                                for back_s in range(num_stations + 1):
+                                    if back_s == 0:
+                                        max_rewards.append(for_val)
+                                        max_labels.append(((for_t, s, inv, for_label_id), (for_t, s, inv, for_label_id)))
+                                    else:
+                                        if not for_set[back_s]:
+                                            for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
+                                                if back_label_num_arr[back_t, back_s, inv] > 0:
+                                                    for back_label_id in range(back_label_num_arr[back_t, back_s, inv]):
+                                                        back_val = back_reward_val_arr[back_t, back_s, inv, back_label_id]
+                                                        back_set = back_reward_set_arr[back_t, back_s, inv, back_label_id, :].copy()
+                                                        if back_val > 0 and not np.any(for_set & back_set):
+                                                            max_rewards.append(for_val + back_val - alpha * (round(c_mat[s, back_s]) - 1))
+                                                            max_labels.append(((for_t, s, inv, for_label_id),
+                                                                               (back_t, back_s, inv, back_label_id)))
+    else:  # with no backward labeling
+        max_reward_list, max_label_list = List(), List()
+        for s in range(num_stations + 1):
+            if s == init_loc:
+                pass
+            else:
+                for inv in range(inv_num):
+                    if for_label_num_arr[t_repo, s, inv] > 0:
+                        for l_id in range(for_label_num_arr[t_repo, s, inv]):
+                            max_reward_list.append(for_reward_val_arr[t_repo, s, inv, l_id])
+                            max_label_list.append((t_repo, s, inv, l_id))
+                    if for_label_num_arr[t_repo - 1, s, inv] > 0:
+                        for l_id in range(for_label_num_arr[t_repo - 1, s, inv]):
+                            max_reward_list.append(for_reward_val_arr[t_repo - 1, s, inv, l_id])
+                            max_label_list.append((t_repo - 1, s, inv, l_id))
+        if len(max_reward_list) > 0:
+
+            max_reward = max(max_reward_list)
+            max_label = max_label_list[max_reward_list.index(max_reward)]
+            k_t_repo, k_s, k_inv, k_l_id = max_label
+            loc_list, inv_list = np.array([-1 for _ in range(t_repo + 1)]), np.array([-1 for _ in range(t_repo + 1)])
+            while True:
+                if k_t_repo == 0:
+                    assert False
+                else:
+                    loc_list[k_t_repo] = k_s
+                    inv_list[k_t_repo] = inv_arr[k_inv]
+                    k_t_repo, k_s, k_inv, k_l_id = for_trace_t_arr[k_t_repo, k_s, k_inv, k_l_id], \
+                                                   for_trace_s_arr[k_t_repo, k_s, k_inv, k_l_id], \
+                                                   for_trace_inv_arr[k_t_repo, k_s, k_inv, k_l_id], \
+                                                   for_trace_lid_arr[k_t_repo, k_s, k_inv, k_l_id]
+                    if k_t_repo == init_t_left:
+                        loc_list[k_t_repo] = k_s
+                        inv_list[k_t_repo] = inv_arr[k_inv]
+                        break
+            print(loc_list)
+            print(inv_list)
+            # delete remaining in route
+            clean_route = List()
+            for k in loc_list:
+                for tmp_k in clean_route:
+                    if k == tmp_k:
+                        break
+                else:
+                    if k > -0.5:
+                        clean_route.append(k)
+
+        else:  # time is too short
+            loc_list, inv_list = np.array([-1 for _ in range(t_repo + 1)]), np.array([-1 for _ in range(t_repo + 1)])
+            for step in range(init_t_left, t_repo + 1):
+                loc_list[step] = init_loc
+                inv_list[step] = init_load
+            clean_route = List()
+            clean_route.append(init_loc)
+            # max_reward = 0  # can be fixed
+
+        clearn_route_arr = np.empty(len(clean_route), dtype=np.int64)
+        for i, v in enumerate(clean_route):
+            clearn_route_arr[i] = v
+        print(clearn_route_arr)
+
+        return clearn_route_arr
+
+    max_val = max(max_rewards)
+    max_val_idx = max_rewards.index(max_val)
+
+    k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][0]
+    loc_list, inv_list = np.array([-1 for _ in range(t_repo + 1)]), np.array([-1 for _ in range(t_repo + 1)])
+    while True:
+        if k_t_repo == 0:
+            assert False
+        else:
+            loc_list[k_t_repo] = k_s
+            inv_list[k_t_repo] = inv_arr[k_inv]
+            k_t_repo, k_s, k_inv, k_label_id = for_trace_t_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                for_trace_s_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                for_trace_inv_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                for_trace_lid_arr[k_t_repo, k_s, k_inv, k_label_id]
+            if k_t_repo == init_t_left:
+                loc_list[k_t_repo] = k_s
+                inv_list[k_t_repo] = inv_arr[k_inv]
+                break
+    # backward
+    k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][1]
+    while True:
+        loc_list[k_t_repo] = k_s
+        inv_list[k_t_repo] = inv_arr[k_inv] - back_reward_ins_arr[k_t_repo, k_s, k_inv, k_label_id]
+        k_t_repo, k_s, k_inv, k_label_id = back_trace_t_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                                            back_trace_s_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                                            back_trace_inv_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                                            back_trace_lid_arr[k_t_repo, k_s, k_inv, k_label_id]
+        if k_t_repo >= 0:
+            if k_t_repo == t_repo:
+                loc_list[k_t_repo] = k_s
+                inv_list[k_t_repo] = inv_arr[k_inv] - back_reward_ins_arr[k_t_repo, k_s, k_inv, k_label_id]
+                break
+        else:
+            break
+    print(loc_list)
+    print(inv_list)
+    # delete remaining in route
+    clean_route = List()
+    for k in loc_list:
+        for tmp_k in clean_route:
+            if k == tmp_k:
+                break
+        else:
+            if k > -0.5:
+                clean_route.append(k)
+
+    print(f'max_reward_length={len(max_rewards)}')
+    print('max_val:')
+    print(max_val)
+
+    clearn_route_arr = np.empty(len(clean_route), dtype=np.int64)
+    for i, v in enumerate(clean_route):
+        clearn_route_arr[i] = v
+    print(clearn_route_arr)
+
+    return clearn_route_arr
 
 
 def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init_loc: list, init_load: list,
@@ -2897,14 +4977,41 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
         #     dual_van=0,
         #     dual_station_vec=dual_station_vec,
         # )
-        route, profit = get_dp_reduced_cost_bidirectional(
+        # route, profit = get_dp_reduced_cost_bidirectional(
+        #     cap_s=c_s,
+        #     num_stations=num_stations,
+        #     init_loc=van_location[veh],
+        #     init_t_left=van_dis_left[veh],
+        #     init_load=van_load[veh],
+        #     x_s_arr=x_s_arr,
+        #     x_c_arr=x_c_arr,
+        #     ei_s_arr=ei_s_arr,
+        #     ei_c_arr=ei_c_arr,
+        #     esd_arr=esd_arr,
+        #     c_mat=c_mat,
+        #     cur_t=cur_t,
+        #     t_p=t_p,
+        #     t_f=t_f,
+        #     alpha=alpha,
+        #     dual_van=0,
+        #     dual_station_vec=dual_station_vec
+        # )
+        sttt = time.process_time()
+        default_inv_id_arr = np.array([0, 0, 0, 0, 0,
+                                       1, 1, 1, 1, 1,
+                                       2, 2, 2, 2, 2,
+                                       3, 3, 3, 3, 3,
+                                       4, 4, 4, 4, 4,
+                                       5, 5, 5, 5, 5], dtype=np.int8)
+        default_inv_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
+        route = get_dp_reduced_cost_bidirectional_numba(
             cap_s=c_s,
             num_stations=num_stations,
             init_loc=van_location[veh],
             init_t_left=van_dis_left[veh],
             init_load=van_load[veh],
-            x_s_arr=x_s_arr,
-            x_c_arr=x_c_arr,
+            x_s_arr=np.array(x_s_arr, dtype=np.int32),
+            x_c_arr=np.array(x_c_arr, dtype=np.int32),
             ei_s_arr=ei_s_arr,
             ei_c_arr=ei_c_arr,
             esd_arr=esd_arr,
@@ -2914,8 +5021,13 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
             t_f=t_f,
             alpha=alpha,
             dual_van=0,
-            dual_station_vec=dual_station_vec
+            dual_station_vec=np.array(dual_station_vec, dtype=np.int32),
+            inventory_dict=default_inv_arr,
+            inventory_id_dict=default_inv_id_arr
         )
+        route = list(route)
+        eddd = time.process_time()
+        print(f'inner route calculation time: {eddd - sttt}')
         for i in route:
             if i != van_location[veh]:
                 visited_stations.append(i)
