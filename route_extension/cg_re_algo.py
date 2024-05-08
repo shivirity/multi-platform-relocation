@@ -1,5 +1,5 @@
 import numba
-from numba import objmode, types
+from numba import prange
 from numba.typed import List
 import time
 import logging
@@ -2424,7 +2424,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
     for t in range(t_repo + 1):
         if t == init_t_left:
             if init_loc == 0:
-                assert init_load == 0
                 for_label_num_arr[t, init_loc, inv_id_arr[init_load]] = 1
                 for_reward_val_arr[t, init_loc, inv_id_arr[init_load], 0] = 0
                 for_reward_set_arr[t, init_loc, inv_id_arr[init_load], 0, init_loc] = True
@@ -2443,8 +2442,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                 for_trace_s_arr[t + stay_t, ne, inv, 0] = init_loc
                                 for_trace_inv_arr[t + stay_t, ne, inv, 0] = inv
                                 for_trace_lid_arr[t + stay_t, ne, inv, 0] = 0
-                            else:  # impossible to reach
-                                assert False
                     else:  # visit other stations
                         arr_t = round(c_mat[init_loc, ne])
                         if t + arr_t <= t_repo:
@@ -2558,8 +2555,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                             if tmp_val >= ne_val and not np.any(tmp_set > ne_set):  # set1是set2的子集
                                                 dom_idx.append(ne_label_id)
                                             elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
-                                                assert len(dom_idx) == 0  # dom_idx is empty
-                                                break
+                                                break  # dom_idx is empty
                                         else:
                                             if len(dom_idx) == 0:  # no domination
                                                 cur_label_num = for_label_num_arr[t + stay_t, ne, inv]
@@ -2716,8 +2712,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                             if tmp_val >= ne_val and not np.any(tmp_set > ne_set):  # set1是set2的子集
                                                                 dom_idx.append(ne_label_id)
                                                             elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
-                                                                assert len(dom_idx) == 0  # dom_idx is empty
-                                                                break
+                                                                break  # dom_idx is empty
                                                         else:
                                                             if len(dom_idx) == 0:  # no domination
                                                                 cur_label_num = for_label_num_arr[t + stay_t, next_s, inv]
@@ -2857,7 +2852,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                                 if tmp_val >= ne_val and not np.any(tmp_set > ne_set):  # set1是set2的子集
                                                                     dom_idx.append(ne_label_id)
                                                                 elif ne_val >= tmp_val and not np.any(ne_set > tmp_set):
-                                                                    assert len(dom_idx) == 0
                                                                     break
                                                             else:
                                                                 if len(dom_idx) == 0:  # no domination
@@ -2924,7 +2918,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
             if t_repo > least_t_repo:
                 if t == half_way_t:
                     break
-    # print(for_reward_val_arr[3, 1, 0, 0], for_reward_set_arr[3, 1, 0, 0, :])
     # backward pass
     if t_repo > least_t_repo:
 
@@ -3367,8 +3360,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                         # end
 
                                                         if flag:
-                                                            assert len(dom_idx) == 0  # dom_idx is empty
-                                                            break
+                                                            break  # dom_idx is empty
                                                 else:
                                                     if len(dom_idx) == 0:  # no domination
                                                         cur_label_num = back_label_num_arr[t - arr_t, la, la_inv]
@@ -3791,8 +3783,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                                 # end
 
                                                                 if flag:
-                                                                    assert len(dom_idx) == 0  # dom_idx is empty
-                                                                    break
+                                                                    break  # dom_idx is empty
                                                         else:
                                                             if len(dom_idx) == 0:  # no domination
                                                                 cur_label_num = back_label_num_arr[t - stay_t, last_s, inv]
@@ -4189,7 +4180,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                                     # end
 
                                                                     if flag:
-                                                                        assert len(dom_idx) == 0
                                                                         break
                                                             else:
                                                                 if len(dom_idx) == 0:  # no domination
@@ -4359,7 +4349,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
         clearn_route_arr = np.empty(len(clean_route), dtype=np.int64)
         for i, v in enumerate(clean_route):
             clearn_route_arr[i] = v
-        print(clearn_route_arr)
 
         return clearn_route_arr
 
@@ -4417,7 +4406,6 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
     clearn_route_arr = np.empty(len(clean_route), dtype=np.int64)
     for i, v in enumerate(clean_route):
         clearn_route_arr[i] = v
-    print(clearn_route_arr)
 
     return clearn_route_arr
 
