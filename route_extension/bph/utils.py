@@ -54,7 +54,7 @@ class GreedySolution:
             x_c_arr=self.x_c_arr,
             alpha=self.alpha,
             est_ins=self.est_ins,
-            branch=2,  # todo: better to be the number of vehicles
+            branch=2,
             state='init'
         )
         num_stations = self.c_mat.shape[0] - 1

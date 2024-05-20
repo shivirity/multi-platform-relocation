@@ -47,7 +47,7 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
                                  alpha=alpha, master_prob=mp)
 
     # ----------------------------------- get the routes ---------------------------------------------
-    result_mp.integer_optimize()  # todo: it is necessary
+    result_mp.integer_optimize()
     result = result_mp.get_non_zero_routes(model='integer')
     re_clean_routes, re_step_exp_inv_list, re_step_target_inv_list = [], [], []
     re_step_loc_list, re_step_n_list = [], []
