@@ -96,11 +96,11 @@ class ESDComputer:
                     x_s_arr[station_id - 1],
                     x_c_arr[station_id - 1]]
                 assert round(self.ei_s_arr[
-                              station_id - 1,
-                              self.t_cur,
-                              (round(self.t_cur + t_arr)) if (round(self.t_cur + t_arr)) < 49 else 48,
-                              x_s_arr[station_id - 1],
-                              x_c_arr[station_id - 1]] + ins) >= 0
+                                 station_id - 1,
+                                 self.t_cur,
+                                 (round(self.t_cur + t_arr)) if (round(self.t_cur + t_arr)) < 49 else 48,
+                                 x_s_arr[station_id - 1],
+                                 x_c_arr[station_id - 1]] + ins) >= 0
                 after_val = self.esd_arr[
                     station_id - 1,
                     round(self.t_cur + t_arr) if round(self.t_cur + t_arr) < 36 else 35,
@@ -142,7 +142,7 @@ class ESDComputer:
             raise ValueError('mode should be multi')
 
     def compute_route(self, r: list, t_left: int, init_l: int, x_s_arr: list, x_c_arr: list,
-                      t_repo: int = 0, can_stay: bool = False):
+                      t_repo: int = 0, can_stay: bool = False, to_print: bool = True):
         """
         calculate the cost of the route and the instructions using dynamic programming
 
@@ -153,6 +153,7 @@ class ESDComputer:
         :param x_c_arr: array of bike numbers (competitor)
         :param t_repo: repositioning window length (in 10 min)
         :param can_stay: whether the van can stay at the station
+        :param to_print: whether to print the results
         :return:
         """
         cap_van, cap_station = VEH_CAP, CAP_S
@@ -163,7 +164,7 @@ class ESDComputer:
         level_num = round(cap_van + 1)  # number of levels of load on van
         reward_arr, trace_arr = (np.full((level_num, station_num), minus_M, dtype=float),
                                  np.full((level_num, station_num), minus_M))
-        if can_stay is False:
+        if not can_stay:
             if route[0] == 0:  # starting from depot, only load bikes
                 assert t_left == 0 and init_l == 0
                 reward_arr[0, 0] = 0
@@ -323,10 +324,10 @@ class ESDComputer:
                         for inv in range(num_level):  # label every inventory level at initial point
                             ins = init_l - inv
                             if 0 <= self.ei_s_arr[init_loc - 1,
-                                self.t_cur,
-                                self.t_cur + t_left,
-                                x_s_arr[init_loc - 1],
-                                x_c_arr[init_loc - 1]] + ins <= cap_station:
+                            self.t_cur,
+                            self.t_cur + t_left,
+                            x_s_arr[init_loc - 1],
+                            x_c_arr[init_loc - 1]] + ins <= cap_station:
                                 # if 0 <= x_s_arr[init_loc - 1] + ins <= cap_station:
                                 reward_arr[t][0][inv] = ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                     station_id=init_loc, t_arr=t_left, ins=ins, x_s_arr=x_s_arr, x_c_arr=x_c_arr,
@@ -433,8 +434,9 @@ class ESDComputer:
 
                                                         new_reward = cur_reward + ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                                             station_id=ne, t_arr=t + arr_t, ins=ins, x_s_arr=x_s_arr,
-                                                            x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * dist_cost
-                                                        
+                                                            x_c_arr=x_c_arr, mode='multi',
+                                                            delta=True) - ALPHA * dist_cost
+
                                                         if reward_arr[t + arr_t][ne_idx][next_inv] is None:
                                                             reward_arr[t + arr_t][ne_idx][next_inv] = new_reward
                                                             trace_arr[t + arr_t][ne_idx][next_inv] = (t, cur_s, inv)
@@ -472,9 +474,10 @@ class ESDComputer:
                             loc_list[k_t_repo] = route[k_s] if k_s != -16 else 0
                             inv_list[k_t_repo] = k_inv
                             break
-                print(f'max reward: {max_reward}')
-                print(loc_list)
-                print(inv_list)
+                if to_print:
+                    print(f'max reward: {max_reward}')
+                    print(loc_list)
+                    print(inv_list)
             else:
                 assert t_left >= t_repo
                 max_reward, loc_list, inv_list = 0, [-1 for _ in range(t_repo + 1)], [-1 for _ in range(t_repo + 1)]
@@ -508,7 +511,6 @@ def get_REA_routes_test(num_of_van: int, van_location: list, van_dis_left: list,
 
     :return:
     """
-    # todo: 多车时补充不可行站点 list
     num_of_stations = c_mat.shape[0] - 1  # exclude the depot
     reg_cur_t = round(cur_t - RE_START_T / 10)
     for van in range(num_of_van):
@@ -911,3 +913,349 @@ def get_REA_routes_test(num_of_van: int, van_location: list, van_dis_left: list,
     # }
     #
     # 'n_r', 'loc', 'exp_inv', 'exp_target_inv'
+
+
+def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: list, van_load: list,
+                           c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int,
+                           c_mat: np.ndarray, ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
+                           esd_arr: np.ndarray, x_s_arr: list, x_c_arr: list,
+                           alpha: float, est_ins: list, branch: int = 2, state: str = 'init',
+                           num_best: int = NUM_INIT_ROUTES):
+    num_of_stations = c_mat.shape[0] - 1  # exclude the depot
+    reg_cur_t = round(cur_t - RE_START_T / 10)
+    t_repo = t_p if RE_START_T / 10 + reg_cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - reg_cur_t - RE_START_T / 10)
+
+    van_positive_count_list = []
+    van_route_list = []
+    van_profit_list = []
+
+    for van in range(num_of_van):
+        root_loc = van_location[van]
+        root_dis_left = van_dis_left[van]
+        root_load = van_load[van]
+        root_ins = est_ins[van]
+        esd_computer = ESDComputer(
+            esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+        undone_nodes, done_nodes = [], []  # only destination node in done_nodes
+        if root_loc == 0:
+            root_profit = 0
+            planned_ins = 0
+        else:
+            est_arrive_inv = ei_s_arr[
+                root_loc - 1, reg_cur_t, reg_cur_t + root_dis_left, x_s_arr[root_loc - 1], x_c_arr[root_loc - 1]]
+            if root_ins >= 0:  # to unload bikes to the station
+                planned_ins = min(root_ins, root_load, round(c_s - est_arrive_inv))
+            else:
+                planned_ins = -min(-root_ins, c_v - root_load, round(est_arrive_inv))
+            assert (0 <= planned_ins +
+                    round(ei_s_arr[
+                              root_loc - 1,
+                              reg_cur_t,
+                              round(reg_cur_t + root_dis_left),
+                              x_s_arr[root_loc - 1],
+                              x_c_arr[root_loc - 1]]) <= c_s), f'{root_ins}, {planned_ins}, {round(ei_s_arr[root_loc - 1,reg_cur_t,round(reg_cur_t + root_dis_left),x_s_arr[root_loc - 1],x_c_arr[root_loc - 1]])}'
+            root_profit = esd_computer.compute_ESD_in_horizon(
+                station_id=root_loc, t_arr=root_dis_left, ins=planned_ins,
+                x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True)
+        # create root node
+        root = Node(stations=root_loc, ins=planned_ins, profit=root_profit,
+                    duration=root_dis_left, load_after_ins=root_load - planned_ins)
+        root.route, root.total_time, root.route_ins, root.cum_profit = (
+            [root_loc], root_dis_left, [planned_ins], root_profit)
+        # create undone nodes list
+        undone_nodes.append(root)
+
+        while undone_nodes:
+            cur_node = undone_nodes.pop(0)
+            # print(cur_node.stations, type(cur_node.stations))
+            node_station = cur_node.stations if isinstance(cur_node.stations, (int, np.int32, np.int64)) else cur_node.stations[1]
+            node_t = cur_node.total_time
+            est_load = cur_node.load_after_ins
+            if est_load / c_v < DELTA_CAP:  # relatively few bikes
+                ant_stations = [i for i in range(1, num_of_stations + 1) if i not in cur_node.route]
+                ant_loading = [0 for _ in range(num_of_stations)]
+                exp_inv = [
+                    round(ei_s_arr[i,
+                    reg_cur_t if reg_cur_t < 36 else 35,
+                    round(reg_cur_t + node_t + c_mat[node_station, i + 1])
+                    if (reg_cur_t + node_t + c_mat[node_station, i + 1]) < 49 else 48,
+                    x_s_arr[i],
+                    x_c_arr[i]])
+                    for i in range(num_of_stations)]
+                for j in ant_stations:
+                    ant_loading[j - 1] = max(exp_inv[j - 1] - L_REA, 0)
+                max_loading = max(ant_loading)
+                if state == 'init':
+                    beta_l = BETA_L
+                else:
+                    raise ValueError('state should be init or dual')
+                ant_next = [j for j in ant_stations if ant_loading[j - 1] >= max_loading * beta_l]
+                # finish set selection
+                ant_inv = [exp_inv[j - 1] if ant_loading[j - 1] == 0 else max(L_REA, exp_inv[j - 1] - c_v + est_load)
+                           for j in ant_next]
+                ant_ins = [ant_inv[j] - exp_inv[ant_next[j] - 1] for j in range(len(ant_next))]
+                ant_profit = [
+                    esd_computer.compute_ESD_in_horizon(
+                        station_id=ant_next[j], t_arr=node_t + c_mat[node_station, ant_next[j]], ins=ant_ins[j],
+                        x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True) for j in range(len(ant_next))]
+                ant_profit_per_min = [ant_profit[j] / (t_p - node_t - c_mat[node_station, ant_next[j]] + 0.1)
+                                      for j in range(len(ant_next))]
+                ant_profit_per_min = [val if val <= 0 else val - 1000 for val in ant_profit_per_min]
+                if len(ant_profit_per_min) > branch:
+                    max_profit_val = heapq.nlargest(branch, ant_profit_per_min)
+                    max_index = list(map(ant_profit_per_min.index, max_profit_val))
+                    for idx in range(len(max_index)):
+                        option = ant_next[max_index[idx]]
+                        opt_ins = ant_ins[max_index[idx]]
+                        assert (0 <= opt_ins +
+                                round(ei_s_arr[
+                                          option - 1,
+                                          reg_cur_t,
+                                          round(reg_cur_t + node_t + c_mat[node_station, option]) if round(
+                                              reg_cur_t + node_t + c_mat[node_station, option]) < 49 else 48,
+                                          x_s_arr[option - 1],
+                                          x_c_arr[option - 1]]) <= c_s)
+                        child_node = Node(stations=option, ins=opt_ins, profit=ant_profit[max_index[idx]],
+                                          duration=c_mat[node_station, option], load_after_ins=est_load - opt_ins)
+                        cur_node.add_child(child_node)
+                        # route finish check
+                        if child_node.total_time < t_p and cur_t + child_node.total_time < RE_END_T / 10:
+                            undone_nodes.append(child_node)
+                        else:
+                            done_nodes.append(child_node)
+                else:
+                    for idx in range(len(ant_next)):
+                        option = ant_next[idx]
+                        opt_ins = ant_ins[idx]
+                        assert (0 <= opt_ins +
+                                round(ei_s_arr[
+                                          option - 1,
+                                          reg_cur_t,
+                                          round(reg_cur_t + node_t + c_mat[node_station, option]) if round(
+                                              reg_cur_t + node_t + c_mat[node_station, option]) < 49 else 48,
+                                          x_s_arr[option - 1],
+                                          x_c_arr[option - 1]]) <= c_s)
+                        child_node = Node(stations=option, ins=opt_ins, profit=ant_profit[idx],
+                                          duration=c_mat[node_station, option], load_after_ins=est_load - opt_ins)
+                        cur_node.add_child(child_node)
+                        # route finish check
+                        if child_node.total_time < t_p and cur_t + child_node.total_time < RE_END_T / 10:
+                            undone_nodes.append(child_node)
+                        else:
+                            done_nodes.append(child_node)
+
+            else:  # relatively many bikes
+                ant_stations = [i for i in range(1, num_of_stations + 1) if i not in cur_node.route]
+                ant_unloading = [0 for _ in range(num_of_stations)]
+                exp_inv = [
+                    round(ei_s_arr[i,
+                    reg_cur_t,
+                    round(reg_cur_t + node_t + c_mat[node_station, i + 1]) if (reg_cur_t + node_t + c_mat[
+                        node_station, i + 1]) < 49 else 48,
+                    x_s_arr[i],
+                    x_c_arr[i]])
+                    for i in range(num_of_stations)]
+                for j in ant_stations:
+                    ant_unloading[j - 1] = max(U_REA - exp_inv[j - 1], 0)
+                max_unloading = max(ant_unloading)
+                if state == 'init':
+                    beta_u = BETA_U
+                else:
+                    raise ValueError('state should be init or dual')
+                ant_next = [j for j in ant_stations if ant_unloading[j - 1] >= max_unloading * beta_u]
+                # choose one or two stations to unload
+                # case1: visit only one station
+                ant_inv = [exp_inv[j - 1] if exp_inv[j - 1] >= U_REA else min(U_REA, exp_inv[j - 1] + est_load)
+                           for j in ant_next]
+                ant_ins = [ant_inv[j] - exp_inv[ant_next[j] - 1] for j in range(len(ant_next))]
+                ant_profit = [
+                    esd_computer.compute_ESD_in_horizon(
+                        station_id=ant_next[j], t_arr=node_t + c_mat[node_station, ant_next[j]], ins=ant_ins[j],
+                        x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True) for j in range(len(ant_next))]
+                ant_profit_per_min = [(ant_profit[j] / c_mat[node_station, ant_next[j]]) for j in range(len(ant_next))]
+                # case2: visit two stations (a, b in order)
+                visit_pair, visit_ins, visit_profit_per_min = [], [], []
+                # compare and choose
+                unload_profit_list = ant_profit_per_min + visit_profit_per_min
+                if len(unload_profit_list) > branch:
+                    max_profit_val = heapq.nlargest(branch, unload_profit_list)
+                    max_index = list(map(unload_profit_list.index, max_profit_val))
+                else:
+                    max_index = list(range(len(unload_profit_list)))
+                for idx in range(len(max_index)):
+                    if max_index[idx] < len(ant_next):
+                        option = ant_next[max_index[idx]]
+                        opt_ins = ant_ins[max_index[idx]]
+                        child_node = Node(stations=option, ins=opt_ins, profit=ant_profit[max_index[idx]],
+                                          duration=c_mat[node_station, option], load_after_ins=est_load - opt_ins)
+                        cur_node.add_child(child_node)
+                        # route finish check
+                        if child_node.total_time < t_p and cur_t + child_node.total_time < RE_END_T / 10:
+                            undone_nodes.append(child_node)
+                        else:
+                            done_nodes.append(child_node)
+                    else:  # 应该用不到
+                        assert False
+        # get the best solution
+        # fix done nodes
+        route_list, route_ins_list, profit_list, duration_list, on_route_list = [], [], [], [], []
+        end_node_list = []
+        for node in done_nodes:
+            # try deleting one station
+            # assert len(node.route) > 3
+            last_1, last_2 = node.route[-1], node.route[-2]
+            if node.ins < 0:  # most recent action is loading
+                # delete one
+                cur_route = node.route[:-1]
+                cur_route_ins = node.route_ins[:-1]
+                if isinstance(node.stations, int):
+                    cur_profit = node.cum_profit - node.profit
+                else:
+                    assert False
+                end_node = node.parent
+                if end_node not in end_node_list:
+                    route_list.append(cur_route)
+                    route_ins_list.append(cur_route_ins)
+                    on_route_t = esd_computer.get_on_route_time(route=cur_route)
+                    on_route_list.append(on_route_t)
+                    profit_list.append(ORDER_INCOME_UNIT * cur_profit - alpha * on_route_t)
+                    duration_list.append(node.total_time - c_mat[last_2, last_1])
+                    end_node_list.append(end_node)
+                else:
+                    pass
+            else:  # most recent action is unloading
+                if node.total_time <= t_p and cur_t + node.total_time <= RE_END_T / 10:
+                    end_node = node
+                    if end_node not in end_node_list:
+                        cur_route = node.route
+                        cur_route_ins = node.route_ins
+                        cur_profit = node.cum_profit
+                        route_list.append(cur_route)
+                        route_ins_list.append(cur_route_ins)
+                        on_route_t = esd_computer.get_on_route_time(route=cur_route)
+                        on_route_list.append(on_route_t)
+                        profit_list.append(ORDER_INCOME_UNIT * cur_profit - alpha * on_route_t)
+                        duration_list.append(node.total_time)
+                        end_node_list.append(end_node)
+                    else:
+                        pass
+                else:
+                    # delete two
+                    if len(node.route) < 3:
+                        continue
+                    assert len(node.route) >= 3
+                    last_3 = node.route[-3]
+                    end_node = node.parent.parent
+                    if end_node not in end_node_list:
+                        cur_route = node.route[:-2]
+                        cur_route_ins = node.route_ins[:-2]
+                        cur_profit = node.cum_profit - node.profit - node.parent.profit
+                        route_list.append(cur_route)
+                        route_ins_list.append(cur_route_ins)
+                        on_route_t = esd_computer.get_on_route_time(route=cur_route)
+                        on_route_list.append(on_route_t)
+                        cur_profit = ORDER_INCOME_UNIT * cur_profit - alpha * on_route_t
+                        duration_list.append(node.total_time - c_mat[last_2, last_1] - c_mat[last_3, last_2])
+                        profit_list.append(cur_profit)
+                        end_node_list.append(end_node)
+                    else:
+                        pass
+
+        # improve profit with best loading/unloading sequence
+        improve_list, improved_profit_list, positive_count = [], [], 0  # in 'init'
+        red_cost_list, seq_profit_list = [], []  # in 'dual'
+        if profit_list:
+            perc = np.percentile(profit_list, 0)  # improve all the routes
+            # print(f'perc: {perc}')
+            for r in range(len(route_list)):
+                if profit_list[r] >= perc:
+                    cost, loc_list, instruct = esd_computer.compute_route(
+                        r=route_list[r],
+                        t_left=root_dis_left,
+                        init_l=van_load[van],
+                        x_s_arr=x_s_arr,
+                        x_c_arr=x_c_arr,
+                        t_repo=t_repo,
+                        can_stay=True,
+                        to_print=False,
+                    )
+                    clean_route = []
+                    for k in loc_list:
+                        if k not in clean_route and k > -0.5:
+                            clean_route.append(k)
+                else:
+                    assert False
+
+                if state == 'init':
+                    if profit_list[r] > 0:
+                        positive_count += 1
+                    if profit_list[r] > cost + 1e-6:
+                        logging.warning(f'{r}')
+                        logging.warning(f'old & new: {profit_list[r]}, {cost}')
+                        logging.warning(f'old: {route_list[r]}, {route_ins_list[r]}')
+                        logging.warning(f'new: {cost}, {loc_list}, {instruct}')
+                        # assert False
+                    improve_list.append(cost - profit_list[r])
+                    improved_profit_list.append(profit_list[r])
+                    route_list[r] = clean_route
+                    route_ins_list[r] = instruct
+                    # print(f'old & new: {profit_list[r]}, {cost - alpha * on_route_list[r]}')
+                    profit_list[r] = cost
+        else:
+            pass
+
+        van_positive_count_list.append(positive_count)
+        van_route_list.append(route_list)
+        van_profit_list.append(profit_list)
+
+        # test best route
+        # esd_computer.t_cur = 20
+        # test_cost, test_instruct = esd_computer.compute_route(
+        #     r=[9, 6, 19, 12, 24, 4, 20, 25],
+        #     t_left=0,
+        #     init_l=8,
+        #     x_s_arr=[10, 5, 6, 4, 16, 9, 2, 12, 14, 3, 0, 29, 9, 6, 4, 3, 15, 0, 5, 0, 10, 2, 1, 13, 3],
+        #     x_c_arr=[3, 16, 8, 0, 26, 15, 2, 16, 36, 31, 2, 56, 17, 8, 5, 4, 6, 3, 18, 1, 24, 5, 2, 6, 4],
+        # )
+        # print(f'test best route: {test_cost}, {test_instruct}')
+        # print(f'test best profit: {test_cost - alpha * esd_computer.get_on_route_time(route=[9, 6, 19, 12, 24, 4, 20, 25])}')
+        # print(esd_computer.get_on_route_time(route=[0, 5, 24, 10, 23, 21, 4, 8, 18]))
+        # best solution route: [0, 5, 24, 10, 23, 21, 4, 8, 18]
+        # best solution instructions: [0, -25, 15, -15, 20, -20, 25, -25, 25]
+
+    if state == 'init':
+
+        van_sel_route_list, van_sel_profit_list = [], []
+
+        for van in range(len(van_positive_count_list)):
+            # if van_positive_count_list[van] == 0:
+            #     print('no positive profits')
+            # else:
+            #     print(f'positive count: {van_positive_count_list[van]}, {van_positive_count_list[van] / len(van_route_list[van])}')
+            # best_improve = heapq.nlargest(10, improve_list)
+            # best_improve_index = list(map(improve_list.index, best_improve))
+            # print('ten best improves: ', best_improve)
+            # print('ten best profits: ', list(map(profit_list.__getitem__, best_improve_index)))
+            # print(f'mean improve: {sum(improve_list) / len(improve_list)}')
+
+            # best_profits = heapq.nlargest(num_best, profit_list)
+            # print('ten best routes: ', best_profits)
+            # best_idx = list(map(profit_list.index, best_profits))
+            # for idx in best_idx:
+            #     print('profit: ', profit_list[idx])
+            #     print('route: ', route_list[idx])
+            #     print('route_ins: ', route_ins_list[idx])
+            sel_route_list, sel_profit_list = [], []
+            best_profits = heapq.nlargest(num_best, van_profit_list[van])
+            best_idx = list(map(van_profit_list[van].index, best_profits))
+            for idx in best_idx:
+                if van_profit_list[van][idx] > 0:
+                    sel_route_list.append(van_route_list[van][idx])
+                    # sel_profit_list.append(profit_list[idx] + sum([esd_computer.compute_ESD_in_horizon(
+                    #     station_id=k, t_arr=0, ins=0, x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True, repo=False)
+                    #     for k in route_list[idx] if k != 0]))
+                    sel_profit_list.append(van_profit_list[van][idx])
+            van_sel_route_list.append(sel_route_list)
+            van_sel_profit_list.append(sel_profit_list)
+
+        return van_sel_route_list, van_sel_profit_list

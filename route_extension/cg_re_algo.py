@@ -4,7 +4,7 @@ from numba.typed import List
 import time
 import logging
 import numpy as np
-from route_extension.route_extension_algo import get_REA_routes_test, ESDComputer
+from route_extension.route_extension_algo import get_REA_routes_test, get_REA_initial_routes, ESDComputer
 from simulation.consts import RE_START_T, RE_END_T, ORDER_INCOME_UNIT, VEH_CAP
 from gurobipy import *
 
@@ -2230,15 +2230,14 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                             for back_s in range(num_stations + 1):
                                 if back_s == 0:  # stay at current station
                                     max_rewards.append(for_label[0])
-                                    max_labels.append(((for_t, s, 0, for_label_id), (for_t, s, 0, for_label_id)))
+                                    max_labels.append(((for_t, s, 0, for_label_id), (None, s, 0, for_label_id)))
                                 else:
                                     if back_s not in for_label[1]:
                                         for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
                                             if back_reward_arr[back_t][back_s][0] is not None:
                                                 for back_label_id in range(len(back_reward_arr[back_t][back_s][0])):
                                                     back_label = back_reward_arr[back_t][back_s][0][back_label_id]
-                                                    if back_label[0] > 0 and len(
-                                                            for_label[1].intersection(back_label[1])) == 0:
+                                                    if len(for_label[1].intersection(back_label[1])) == 0:  # delete back_label[0] > 0
                                                         # if len(for_label[1].intersection(back_label[1])) == 0:
                                                         max_rewards.append(
                                                             for_label[0] + back_label[0] - alpha * round(
@@ -2254,7 +2253,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                     if back_s == 0:
                                         max_rewards.append(for_label[0])
                                         max_labels.append(
-                                            ((for_t, s, inv, for_label_id), (for_t, s, inv, for_label_id)))
+                                            ((for_t, s, inv, for_label_id), (None, s, inv, for_label_id)))
                                     else:
                                         if back_s not in for_label[1]:
                                             for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
@@ -2262,8 +2261,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                     for back_label_id in range(
                                                             len(back_reward_arr[back_t][back_s][inv])):
                                                         back_label = back_reward_arr[back_t][back_s][inv][back_label_id]
-                                                        if back_label[0] > 0 and len(
-                                                                for_label[1].intersection(back_label[1])) == 0:
+                                                        if len(for_label[1].intersection(back_label[1])) == 0:  # delete back_label[0] > 0
                                                             max_rewards.append(
                                                                 for_label[0] + back_label[0] - alpha * (
                                                                         round(c_mat[s, back_s]) - 1))
@@ -2324,14 +2322,63 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
         return clean_route, max_reward
 
     max_val = max(max_rewards)
+    # print(f'positive value num: {len([i for i in max_rewards if i > 0])}')
+    #
+    # sttt = time.process_time()
+    # positive_routes = []
+    # for ind in range(len(max_rewards)):
+    #     if max_rewards[ind] > 0:
+    #         ind_for_label, ind_back_label = max_labels[ind][0], max_labels[ind][1]
+    #         # forward
+    #         k_t_repo, k_s, k_inv, k_label_id = ind_for_label
+    #         loc_list = [-1 for _ in range(t_repo + 1)]
+    #         while True:
+    #             if k_t_repo == 0:
+    #                 assert False
+    #             else:
+    #                 loc_list[k_t_repo] = k_s
+    #                 k_t_repo, k_s, k_inv, k_label_id = for_trace_arr[k_t_repo][k_s][k_inv][k_label_id]
+    #                 if k_t_repo == init_t_left:
+    #                     loc_list[k_t_repo] = k_s
+    #                     break
+    #         # backward
+    #         k_t_repo, k_s, k_inv, k_label_id = ind_back_label
+    #         if k_t_repo is not None:
+    #             while True:
+    #                 loc_list[k_t_repo] = k_s
+    #                 # print(k_t_repo, k_s, k_inv, k_label_id, back_reward_arr[k_t_repo][k_s][k_inv])
+    #                 k_t_repo, k_s, k_inv, k_label_id = back_trace_arr[k_t_repo][k_s][k_inv][k_label_id]
+    #                 if k_t_repo >= 0:
+    #                     if k_t_repo == t_repo:
+    #                         loc_list[k_t_repo] = k_s
+    #                         break
+    #                 else:
+    #                     break
+    #         ind_clean_route = []
+    #         for k in loc_list:
+    #             if k not in ind_clean_route and k > -0.5:
+    #                 ind_clean_route.append(k)
+    #         if ind_clean_route not in positive_routes:
+    #             positive_routes.append(ind_clean_route)
+    # print(f'positive routes num: ', len(positive_routes))
+    # eddd = time.process_time()
+    # print(f'positive routes calculation time: {eddd - sttt}')
+    # for ind_route in positive_routes:
+    #     max_reward, loc_list, inv_list = com.compute_route(r=ind_route, t_left=init_t_left,
+    #                                                        init_l=init_load, x_s_arr=x_s_arr,
+    #                                                        x_c_arr=x_c_arr, t_repo=t_repo,
+    #                                                        can_stay=True, to_print=False)
+    # edddd = time.process_time()
+    # print(f'positive routes calculation time (with best inv): {edddd - eddd}')
+
     max_val_idx = max_rewards.index(max_val)
     ed = time.process_time()
     print(f'join pass finished, time: {ed - st}')
 
-    print(f'forward idx: {max_labels[max_val_idx][0]}')
-    print(f'forward label: {for_reward_arr[max_labels[max_val_idx][0][0]][max_labels[max_val_idx][0][1]][max_labels[max_val_idx][0][2]][max_labels[max_val_idx][0][3]]}')
-    print(f'backward idx: {max_labels[max_val_idx][1]}')
-    print(f'backward label: {back_reward_arr[max_labels[max_val_idx][1][0]][max_labels[max_val_idx][1][1]][max_labels[max_val_idx][1][2]][max_labels[max_val_idx][1][3]]}')
+    # print(f'forward idx: {max_labels[max_val_idx][0]}')
+    # print(f'forward label: {for_reward_arr[max_labels[max_val_idx][0][0]][max_labels[max_val_idx][0][1]][max_labels[max_val_idx][0][2]][max_labels[max_val_idx][0][3]]}')
+    # print(f'backward idx: {max_labels[max_val_idx][1]}')
+    # print(f'backward label: {back_reward_arr[max_labels[max_val_idx][1][0]][max_labels[max_val_idx][1][1]][max_labels[max_val_idx][1][2]][max_labels[max_val_idx][1][3]]}')
 
     # get clean routes
     # forward
@@ -2350,17 +2397,18 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                 break
     # backward
     k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][1]
-    while True:
-        loc_list[k_t_repo] = k_s
-        inv_list[k_t_repo] = inv_dict[k_inv] - back_reward_arr[k_t_repo][k_s][k_inv][k_label_id][2]
-        k_t_repo, k_s, k_inv, k_label_id = back_trace_arr[k_t_repo][k_s][k_inv][k_label_id]
-        if k_t_repo >= 0:
-            if k_t_repo == t_repo:
-                loc_list[k_t_repo] = k_s
-                inv_list[k_t_repo] = inv_dict[k_inv] - back_reward_arr[k_t_repo][k_s][k_inv][k_label_id][2]
+    if k_t_repo is not None:
+        while True:
+            loc_list[k_t_repo] = k_s
+            inv_list[k_t_repo] = inv_dict[k_inv] - back_reward_arr[k_t_repo][k_s][k_inv][k_label_id][2]
+            k_t_repo, k_s, k_inv, k_label_id = back_trace_arr[k_t_repo][k_s][k_inv][k_label_id]
+            if k_t_repo >= 0:
+                if k_t_repo == t_repo:
+                    loc_list[k_t_repo] = k_s
+                    inv_list[k_t_repo] = inv_dict[k_inv] - back_reward_arr[k_t_repo][k_s][k_inv][k_label_id][2]
+                    break
+            else:
                 break
-        else:
-            break
 
     print(loc_list)
     print(inv_list)
@@ -2380,26 +2428,26 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
     return clean_route, max_val
 
 
-@numba.jit('i8[:](i8,i8,i8,i8,i8,i4[:],i4[:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:],i8,i8,i8,f8,i8,i4[:],i1[:],i1[:])',
+@numba.jit('i8[:](i8,i8,i8,i8,i8,i4[:],i4[:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:],i8,i8,i8,f8,f8[:],i1[:],i1[:])',
            nopython=True, nogil=True)
 def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
                                             init_load: int, x_s_arr: np.ndarray, x_c_arr: np.ndarray,
                                             ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
                                             esd_arr: np.ndarray, c_mat: np.ndarray,
                                             cur_t: int, t_p: int, t_f: int, alpha: float,
-                                            dual_van: int, dual_station_vec: np.ndarray,
+                                            dual_station_vec: np.ndarray,
                                             inventory_dict: np.ndarray, inventory_id_dict: np.ndarray):
     """calculate heuristic or exact reduced cost using bidirectional labeling algorithm, accelerated by numba"""
     cur_t = round(cur_t - RE_START_T / 10)
     t_repo = t_p if RE_START_T / 10 + cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t - RE_START_T / 10)
     half_way_t = int((init_t_left + t_repo) / 2 - 1)  # forward to: h, backward to: h + 3(min travel distance)
     least_t_repo = 4  # 4
-    print(f'in get_dp_reduced_cost_bidirec(), time_left = {init_t_left}, half_way_point = {half_way_t}')
+    # print(f'in get_dp_reduced_cost_bidirec_numba(), time_left = {init_t_left}, half_way_point = {half_way_t}')
     if t_repo == 1:
         return np.array([init_loc], dtype=np.int64)
     elif t_repo == 0:
         assert False
-    print(f'in get_dp_reduced_cost_bidirec(), t_repo = {t_repo}')
+    # print(f'in get_dp_reduced_cost_bidirec_numba(), t_repo = {t_repo}')
     # default_inv_id_arr = np.array([0, 0, 0, 0, 0,
     #                                1, 1, 1, 1, 1,
     #                                2, 2, 2, 2, 2,
@@ -4257,7 +4305,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                             for back_s in range(num_stations + 1):
                                 if back_s == 0:
                                     max_rewards.append(for_val)
-                                    max_labels.append(((for_t, s, 0, for_label_id), (for_t, s, 0, for_label_id)))
+                                    max_labels.append(((for_t, s, 0, for_label_id), (-11, s, 0, for_label_id)))
                                 else:
                                     if not for_set[back_s]:
                                         for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
@@ -4265,7 +4313,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                 for back_label_id in range(back_label_num_arr[back_t, back_s, 0]):
                                                     back_val = back_reward_val_arr[back_t, back_s, 0, back_label_id]
                                                     back_set = back_reward_set_arr[back_t, back_s, 0, back_label_id, :].copy()
-                                                    if back_val > 0 and not np.any(for_set & back_set):
+                                                    if not np.any(for_set & back_set):  # delete back_val > 0
                                                         max_rewards.append(for_val + back_val - alpha * round(c_mat[s, back_s]))
                                                         max_labels.append(((for_t, s, 0, for_label_id),
                                                                            (back_t, back_s, 0, back_label_id)))
@@ -4278,7 +4326,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                 for back_s in range(num_stations + 1):
                                     if back_s == 0:
                                         max_rewards.append(for_val)
-                                        max_labels.append(((for_t, s, inv, for_label_id), (for_t, s, inv, for_label_id)))
+                                        max_labels.append(((for_t, s, inv, for_label_id), (-11, s, inv, for_label_id)))
                                     else:
                                         if not for_set[back_s]:
                                             for back_t in range(for_t + round(c_mat[s, back_s]), t_repo + 1):
@@ -4286,7 +4334,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                     for back_label_id in range(back_label_num_arr[back_t, back_s, inv]):
                                                         back_val = back_reward_val_arr[back_t, back_s, inv, back_label_id]
                                                         back_set = back_reward_set_arr[back_t, back_s, inv, back_label_id, :].copy()
-                                                        if back_val > 0 and not np.any(for_set & back_set):
+                                                        if not np.any(for_set & back_set):  # delete back_val > 0
                                                             max_rewards.append(for_val + back_val - alpha * (round(c_mat[s, back_s]) - 1))
                                                             max_labels.append(((for_t, s, inv, for_label_id),
                                                                                (back_t, back_s, inv, back_label_id)))
@@ -4325,8 +4373,8 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                         loc_list[k_t_repo] = k_s
                         inv_list[k_t_repo] = inv_arr[k_inv]
                         break
-            print(loc_list)
-            print(inv_list)
+            # print(loc_list)
+            # print(inv_list)
             # delete remaining in route
             clean_route = List()
             for k in loc_list:
@@ -4373,22 +4421,23 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                 break
     # backward
     k_t_repo, k_s, k_inv, k_label_id = max_labels[max_val_idx][1]
-    while True:
-        loc_list[k_t_repo] = k_s
-        inv_list[k_t_repo] = inv_arr[k_inv] - back_reward_ins_arr[k_t_repo, k_s, k_inv, k_label_id]
-        k_t_repo, k_s, k_inv, k_label_id = back_trace_t_arr[k_t_repo, k_s, k_inv, k_label_id], \
-                                            back_trace_s_arr[k_t_repo, k_s, k_inv, k_label_id], \
-                                            back_trace_inv_arr[k_t_repo, k_s, k_inv, k_label_id], \
-                                            back_trace_lid_arr[k_t_repo, k_s, k_inv, k_label_id]
-        if k_t_repo >= 0:
-            if k_t_repo == t_repo:
-                loc_list[k_t_repo] = k_s
-                inv_list[k_t_repo] = inv_arr[k_inv] - back_reward_ins_arr[k_t_repo, k_s, k_inv, k_label_id]
+    if k_t_repo > -10:
+        while True:
+            loc_list[k_t_repo] = k_s
+            inv_list[k_t_repo] = inv_arr[k_inv] - back_reward_ins_arr[k_t_repo, k_s, k_inv, k_label_id]
+            k_t_repo, k_s, k_inv, k_label_id = back_trace_t_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                                                back_trace_s_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                                                back_trace_inv_arr[k_t_repo, k_s, k_inv, k_label_id], \
+                                                back_trace_lid_arr[k_t_repo, k_s, k_inv, k_label_id]
+            if k_t_repo >= 0:
+                if k_t_repo == t_repo:
+                    loc_list[k_t_repo] = k_s
+                    inv_list[k_t_repo] = inv_arr[k_inv] - back_reward_ins_arr[k_t_repo, k_s, k_inv, k_label_id]
+                    break
+            else:
                 break
-        else:
-            break
-    print(loc_list)
-    print(inv_list)
+    # print(loc_list)
+    # print(inv_list)
     # delete remaining in route
     clean_route = List()
     for k in loc_list:
@@ -4399,9 +4448,9 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
             if k > -0.5:
                 clean_route.append(k)
 
-    print(f'max_reward_length={len(max_rewards)}')
-    print('max_val:')
-    print(max_val)
+    # print(f'max_reward_length={len(max_rewards)}')
+    # print('max_val:')
+    # print(max_val)
 
     clearn_route_arr = np.empty(len(clean_route), dtype=np.int64)
     for i, v in enumerate(clean_route):
@@ -4729,6 +4778,28 @@ def get_CG_REA_routes(num_of_van: int, van_location: list, van_dis_left: list, v
         branch=branch,
         state='init'
     )
+    # init_routes, init_profit = get_REA_initial_routes(
+    #     num_of_van=2,
+    #     van_location=[5, 18],
+    #     van_dis_left=[2, 0],
+    #     van_load=[5, 5],
+    #     c_s=c_s,
+    #     c_v=c_v,
+    #     cur_t=cur_t,
+    #     t_p=t_p,
+    #     t_f=t_f,
+    #     t_roll=t_roll,
+    #     c_mat=c_mat,
+    #     ei_s_arr=ei_s_arr,
+    #     ei_c_arr=ei_c_arr,
+    #     esd_arr=esd_arr,
+    #     x_s_arr=x_s_arr,
+    #     x_c_arr=x_c_arr,
+    #     alpha=alpha,
+    #     est_ins=[5, 0],
+    #     branch=branch,
+    #     state='init'
+    # )
     ed = time.process_time()
     print(f'init routes time: {ed - st}')
     routes_pool, profit_pool = [list(val) for val in init_routes], list(init_profit)
@@ -4918,10 +4989,11 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
     for veh in range(num_of_van):
         dual_station_vec = [0 for _ in range(num_stations)]
         for i in range(num_of_van):
-            if i != veh:
+            if i != veh and van_location[i] != 0:
                 dual_station_vec[van_location[i] - 1] = 1000  # avoid visiting the same station
         for node in visited_stations:
-            dual_station_vec[node - 1] = 1000  # avoid visiting the same station
+            if node != 0:
+                dual_station_vec[node - 1] = 1000  # avoid visiting the same station
         # for i in list({0, 1, 16, 19, 5, 6, 12}):
         #     if i != 0:
         #         dual_station_vec[i-1] = 1000
@@ -4965,6 +5037,11 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
         #     dual_van=0,
         #     dual_station_vec=dual_station_vec,
         # )
+        # import pickle
+        # with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\test_file\test_dual_vector.pkl', 'rb') as f:
+        #     dual_vec = pickle.load(f)
+        # dual_veh, dual_station_vec = dual_vec[0], dual_vec[2:]
+        # print('dual vehicle: ', dual_veh)
         # route, profit = get_dp_reduced_cost_bidirectional(
         #     cap_s=c_s,
         #     num_stations=num_stations,
@@ -4992,6 +5069,14 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
                                        4, 4, 4, 4, 4,
                                        5, 5, 5, 5, 5], dtype=np.int8)
         default_inv_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
+        # # default_inv_id_arr = np.array([0, 0, 1, 1, 2,
+        # #                                2, 3, 3, 4, 4,
+        # #                                5, 5, 6, 6, 7,
+        # #                                7, 8, 8, 9, 9,
+        # #                                10, 10, 11, 11, 12, 13], dtype=np.int8)
+        # # default_inv_arr = np.array([0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 25], dtype=np.int8)
+        # # default_inv_id_arr = np.array(list(range(26)), dtype=np.int8)
+        # # default_inv_arr = np.array(list(range(26)), dtype=np.int8)
         route = get_dp_reduced_cost_bidirectional_numba(
             cap_s=c_s,
             num_stations=num_stations,
@@ -5008,8 +5093,7 @@ def get_DP_routes_greedy(num_of_van: int, van_location: list, van_dis_left: list
             t_p=t_p,
             t_f=t_f,
             alpha=alpha,
-            dual_van=0,
-            dual_station_vec=np.array(dual_station_vec, dtype=np.int32),
+            dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
             inventory_dict=default_inv_arr,
             inventory_id_dict=default_inv_id_arr
         )
