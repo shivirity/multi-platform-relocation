@@ -15,7 +15,7 @@ import sys
 
 # from alns import get_relocation_routes
 from route_extension.route_extension_algo import get_REA_routes_test
-from route_extension.cg_re_algo import get_CG_REA_routes, get_DP_routes_greedy, get_exact_routes
+from route_extension.cg_re_algo import get_CG_REA_routes, get_DP_routes_greedy, get_exact_cost
 from route_extension.bph.BaP_algo import get_routes_branch_and_price
 
 random.seed(SEED)
@@ -630,6 +630,27 @@ class Simulation:
                         alpha=ALPHA,
                         est_ins=[0 for _ in range(self.num_of_veh)]
                     )
+                    # todo: test gurobi
+                    max_reward, loc_list, inv_list = get_exact_cost(
+                        cap_v=VEH_CAP,
+                        cap_s=CAP_S,
+                        num_stations=25,
+                        t_left=[0 for _ in range(self.num_of_veh)],
+                        init_loc=[0 for _ in range(self.num_of_veh)],
+                        init_load=[0 for _ in range(self.num_of_veh)],
+                        x_s_arr=[val.num_self for val in self.stations.values()],
+                        x_c_arr=[val.num_opponent for val in self.stations.values()],
+                        ei_s_arr=self.ei_s_arr,
+                        ei_c_arr=self.ei_c_arr,
+                        esd_arr=self.esd_arr,
+                        c_mat=self.get_MINLP_dist_mat(),
+                        cur_t=round(self.t / MIN_RUN_STEP),
+                        t_p=round(T_PLAN / MIN_RUN_STEP),
+                        t_f=round(T_FORE / MIN_RUN_STEP),
+                        t_roll=round(T_ROLL / MIN_RUN_STEP),
+                        alpha=ALPHA,
+                    )
+
                     # import pickle
                     # with open('test_van_location.pkl', 'rb') as f:
                     #     test_van_location = pickle.load(f)
@@ -780,6 +801,26 @@ class Simulation:
                             x_c_arr=[val.num_opponent for val in self.stations.values()],
                             alpha=ALPHA,
                             est_ins=scheduled_ins
+                        )
+                        # todo: test gurobi
+                        max_reward, loc_list, inv_list = get_exact_cost(
+                            cap_v=VEH_CAP,
+                            cap_s=CAP_S,
+                            num_stations=25,
+                            t_left=[round(self.veh_info[veh][2]/MIN_RUN_STEP) for veh in range(self.num_of_veh)],
+                            init_loc=[self.veh_info[veh][1] for veh in range(self.num_of_veh)],
+                            init_load=[self.veh_info[veh][3] for veh in range(self.num_of_veh)],
+                            x_s_arr=[val.num_self for val in self.stations.values()],
+                            x_c_arr=[val.num_opponent for val in self.stations.values()],
+                            ei_s_arr=self.ei_s_arr,
+                            ei_c_arr=self.ei_c_arr,
+                            esd_arr=self.esd_arr,
+                            c_mat=self.get_MINLP_dist_mat(),
+                            cur_t=round(self.t / MIN_RUN_STEP),
+                            t_p=round(T_PLAN / MIN_RUN_STEP),
+                            t_f=round(T_FORE / MIN_RUN_STEP),
+                            t_roll=round(T_ROLL / MIN_RUN_STEP),
+                            alpha=ALPHA,
                         )
                     else:
                         assert False, f'to fill mode: exact_test'

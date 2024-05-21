@@ -4565,7 +4565,7 @@ def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init
     x_ijv = model.addVars(i_length, j_length, num_veh, vtype=GRB.BINARY, name='x_ijv')
     q_ijv = model.addVars(i_length, j_length, num_veh, vtype=GRB.INTEGER, name='q_ijv')
     z_i = model.addVars(num_stations, vtype=GRB.BINARY, name='z_i')
-    t_i = model.addVars(1 + num_stations, vtype=GRB.INTEGER, name='t_i')
+    t_i = model.addVars(1 + num_stations + len(Dummy_end), vtype=GRB.INTEGER, name='t_i')
     n_i = model.addVars(num_stations, lb=-GRB.INFINITY, vtype=GRB.INTEGER, name='n_i')
 
     # Linearization
@@ -4623,15 +4623,16 @@ def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init
                     model.addConstr(q_ijv[i, j, v] <= cap_v * x_ijv[i, j, v], name=f'constr6_u_{i}_{j}_{v}')
     # (7a)
     for i in Stations:
-        expr1, expr2 = LinExpr(), LinExpr()
-        for v in Veh:
-            for j in range(j_length):
-                if i != j + 1:
-                    expr1.addTerms(1, q_ijv[i, j, v])
-            for j in Stations:
-                if i != j:
-                    expr2.addTerms(1, q_ijv[j, i - 1, v])
-        model.addConstr(n_i[i - 1] == expr1 - expr2, name=f'constr7a_{i}')
+        if i not in Start_loc:
+            expr1, expr2 = LinExpr(), LinExpr()
+            for v in Veh:
+                for j in range(j_length):
+                    if i != j + 1:
+                        expr1.addTerms(1, q_ijv[i, j, v])
+                for j in Stations:
+                    if i != j:
+                        expr2.addTerms(1, q_ijv[j, i - 1, v])
+            model.addConstr(n_i[i - 1] == expr1 - expr2, name=f'constr7a_{i}')
     # (7b)
     for v in Veh:
         if Start_loc[v] != 0:
@@ -4659,7 +4660,7 @@ def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init
             model.addConstr(n_i[i - 1] <= cap_v, name=f'constr10_u_{i}_{v}')
     # (11)
     for i in All_nodes:
-        for j in range(j_length - 1):
+        for j in range(j_length):
             if i != j + 1:
                 for v in Veh:
                     model.addConstr(
@@ -4717,18 +4718,19 @@ def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init
     # objective
     model.setObjective(ORDER_INCOME_UNIT * (expr1 + expr2 - expr3) - alpha * expr4, GRB.MAXIMIZE)
 
+    model.setParam('TimeLimit', 3600)
     model.optimize()
     # model.computeIIS()
     # model.write("model_file.ilp")
     if model.status == GRB.OPTIMAL:
         print(f'station ESD sum: {sum(station_esd_list)}')
-        print(f'i={0}, t_i[i]={t_i[0].x}')
-        for i in range(num_stations):
-            print(f'i={i}, z_i[i]={z_i[i].x}')
-            print(f'i={i}, t_i[i]={t_i[i + 1].x}')
-            print(f'i={i}, n_i[i]={n_i[i].x}')
-        for j in range(j_length):
-            print(f'j={j}, x_0j0[j]={x_ijv[0, j, 0].x}')
+        # print(f'i={0}, t_i[i]={t_i[0].x}')
+        # for i in range(num_stations):
+        #     print(f'i={i}, z_i[i]={z_i[i].x}')
+        #     print(f'i={i}, t_i[i]={t_i[i + 1].x}')
+        #     print(f'i={i}, n_i[i]={n_i[i].x}')
+        # for j in range(j_length):
+        #     print(f'j={j}, x_0j0[j]={x_ijv[0, j, 0].x}')
 
     return model, None, None
 
