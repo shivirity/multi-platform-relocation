@@ -4722,8 +4722,17 @@ def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init
     model.optimize()
     # model.computeIIS()
     # model.write("model_file.ilp")
-    if model.status == GRB.OPTIMAL:
-        print(f'station ESD sum: {sum(station_esd_list)}')
+    if model.status == GRB.Status.OPTIMAL:
+        print("Optimal solution found.")
+    elif model.status == GRB.Status.TIME_LIMIT:
+        print("Time limit reached.")
+    if model.SolCount > 0:
+        print(f"Current solution (lower bound): {model.objVal}")
+    print(f"Best bound (upper bound): {model.objBound}")
+    if model.SolCount > 0:
+        gap = (model.objBound - model.objVal) / (1e-10 + abs(model.objVal))
+        print(f"Gap: {gap * 100:.2f}%")
+
         # print(f'i={0}, t_i[i]={t_i[0].x}')
         # for i in range(num_stations):
         #     print(f'i={i}, z_i[i]={z_i[i].x}')
@@ -4733,6 +4742,294 @@ def get_exact_cost(cap_v: int, cap_s: int, num_stations: int, t_left: list, init
         #     print(f'j={j}, x_0j0[j]={x_ijv[0, j, 0].x}')
 
     return model, None, None
+
+
+def get_routes_gurobi_single(cap_v: int, cap_s: int, num_stations: int, t_left: list, init_loc: list, init_load: list,
+                             x_s_arr: list, ei_s_arr: np.ndarray, esd_arr: np.ndarray, c_mat: np.ndarray, cur_t: int,
+                             t_p: int, t_f: int, t_roll: int, alpha: float):
+    """calculate exact cost using Gurobi in the single mode"""
+    esd_computer = ESDComputer(
+        esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=np.array([0]), t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+    station_esd_list = [
+        esd_computer.compute_ESD_in_horizon(
+            station_id=i,
+            t_arr=0,
+            ins=0,
+            x_s_arr=x_s_arr,
+            x_c_arr=[0],
+            mode='single',
+            delta=True,
+            repo=False
+        ) for i in range(1, num_stations + 1)
+    ]
+    reg_t = round(cur_t - RE_START_T / 10)
+    t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
+    num_veh = len(t_left)
+    # consts for EI and ESD
+    ei_s_arr_ij = np.zeros((num_stations, t_repo + 1))
+    esd_arr_ij = np.zeros((num_stations, t_repo + 1))
+    after_esd_arr_ij = np.zeros((num_stations, t_repo + 1))
+    for i in range(1, num_stations + 1):
+        for j in range(t_repo + 1):
+            ei_s_arr_ij[i - 1, j] = round(ei_s_arr[
+                i - 1,
+                reg_t,
+                round(reg_t + j) if round(reg_t + j) < 49 else 48,
+                x_s_arr[i - 1]])
+            esd_arr_ij[i - 1, j] = esd_arr[
+                i - 1,
+                reg_t,
+                round(reg_t + j) if round(reg_t + j) < 49 else 48,
+                x_s_arr[i - 1]]
+            after_esd_arr_ij[i - 1, j] = esd_arr[
+                i - 1,
+                round(reg_t + j) if round(reg_t + j) < 36 else 35,
+                round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                round(ei_s_arr[
+                    i - 1,
+                    reg_t,
+                    round(reg_t + j) if round(reg_t + j) < 49 else 48,
+                    x_s_arr[i - 1]])
+            ]
+    # consts for k|b
+    k_itu = np.zeros((num_stations, t_repo + 1, cap_s))
+    b_itu = np.zeros((num_stations, t_repo + 1, cap_s))
+    for i in range(1, num_stations + 1):
+        for t in range(t_repo + 1):
+            yy = esd_arr[
+                i - 1,
+                round(reg_t + t) if round(reg_t + t) < 36 else 35,
+                round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                0]
+            yyy = esd_arr[
+                i - 1,
+                round(reg_t + t) if round(reg_t + t) < 36 else 35,
+                round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                round(ei_s_arr[
+                    i - 1,
+                    reg_t,
+                    round(reg_t + t) if round(reg_t + t) < 49 else 48,
+                    x_s_arr[i - 1]])
+            ]
+            former_x, former_y = 0, yy - yyy
+            for I in range(1, cap_s + 1):
+                yy = esd_arr[
+                    i - 1,
+                    round(reg_t + t) if round(reg_t + t) < 36 else 35,
+                    round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                    I]
+                cur_x, cur_y = I, yy - yyy
+                k_itu[i - 1, t, I - 1] = (cur_y - former_y) / (cur_x - former_x)
+                b_itu[i - 1, t, I - 1] = cur_y - k_itu[i - 1, t, I - 1] * cur_x
+                former_x, former_y = cur_x, cur_y
+
+    # build the model
+    model = Model('single_info_Model')
+    # Sets
+    Start_loc = list(init_loc)  # start location
+    Dummy_end = [i for i in range(num_veh)]  # N_-
+    Stations = [i for i in range(1, num_stations + 1)]  # S
+    N_stations = [val for val in Stations if val not in Start_loc]  # N_S
+    All_nodes = [i for i in range(num_stations + 1)]  # S and {0}(depot)
+    Veh = [i for i in range(num_veh)]  # V
+    i_length, j_length = len(All_nodes), len(Dummy_end) + num_stations  # |num_stations|个站点+|V|个dummy终点
+    t_j = [i for i in range(t_repo + 1)]  # T
+    n_k = [i for i in range(-cap_v, cap_v + 1)]  # N
+
+    # const
+    cost_mat = np.zeros((i_length, j_length))
+    for i in range(i_length):
+        for j in range(j_length):
+            if i == 0:
+                if j < num_stations:
+                    cost_mat[i, j] = round(c_mat[0, j + 1])
+                else:
+                    cost_mat[i, j] = 0
+            else:  # i > 0
+                if j < num_stations:
+                    if i != j + 1:
+                        cost_mat[i, j] = round(c_mat[i, j + 1] - 1)
+                    else:
+                        cost_mat[i, j] = 0
+                else:
+                    cost_mat[i, j] = 0
+
+    d_mat = np.zeros((i_length, j_length))
+    for i in range(i_length):
+        for j in range(j_length):
+            if j < num_stations:
+                d_mat[i, j] = c_mat[i, j + 1]
+            else:
+                d_mat[i, j] = 0
+
+    # Variables
+    x_ijv = model.addVars(i_length, j_length, num_veh, vtype=GRB.BINARY, name='x_ijv')
+    q_ijv = model.addVars(i_length, j_length, num_veh, vtype=GRB.INTEGER, name='q_ijv')
+    z_i = model.addVars(num_stations, vtype=GRB.BINARY, name='z_i')
+    t_i = model.addVars(1 + num_stations + len(Dummy_end), vtype=GRB.INTEGER, name='t_i')
+    n_i = model.addVars(num_stations, lb=-GRB.INFINITY, vtype=GRB.INTEGER, name='n_i')
+    I_i = model.addVars(num_stations, vtype=GRB.INTEGER, name='I_i')
+    w_it = model.addVars(num_stations, 1 + t_repo, lb=-GRB.INFINITY, vtype=GRB.CONTINUOUS, name='w_i')
+
+    # Linearization
+    p_ij = model.addVars(i_length, t_repo + 1, vtype=GRB.BINARY, name='p_ij')
+
+    # Constraints
+    # (1)
+    for v in Veh:
+        expr = LinExpr()
+        for j in range(j_length):
+            if j != Start_loc[v] - 1:
+                expr.addTerms(1, x_ijv[Start_loc[v], j, v])
+        model.addConstr(expr == 1, f'constr1_{v}')
+    # (2)
+    for j in range(len(Dummy_end)):
+        expr = LinExpr()
+        for v in Veh:
+            for i in range(i_length):
+                expr.addTerms(1, x_ijv[i, j + num_stations, v])
+        model.addConstr(expr == 1, name=f'constr2_{j}')
+    # (3)
+    for i in N_stations:
+        expr = LinExpr()
+        for v in Veh:
+            for j in range(j_length):
+                if i != j + 1:
+                    expr.addTerms(1, x_ijv[i, j, v])
+        model.addConstr(expr <= 1, name=f'constr3_{i}')
+    # (4)  Constr(4) covers Constr(3)
+    for i in Stations:
+        expr = LinExpr()
+        for v in Veh:
+            for j in range(j_length):
+                if i != j + 1:
+                    expr.addTerms(1, x_ijv[i, j, v])
+        model.addConstr(expr == z_i[i - 1], name=f'constr4_{i}')
+    # (5)
+    for i in N_stations:
+        for v in Veh:
+            expr1, expr2 = LinExpr(), LinExpr()
+            for j in All_nodes:
+                if i != j:
+                    expr1.addTerms(1, x_ijv[j, i - 1, v])
+            for j in range(j_length):
+                if i != j + 1:
+                    expr2.addTerms(1, x_ijv[i, j, v])
+            model.addConstr(expr1 - expr2 == 0, name=f'constr5_{i}_{v}')
+    # (6)
+    for i in Stations:
+        for j in range(j_length):
+            for v in Veh:
+                if i != j + 1:
+                    model.addConstr(0 <= q_ijv[i, j, v], name=f'constr6_l_{i}_{j}_{v}')
+                    model.addConstr(q_ijv[i, j, v] <= cap_v * x_ijv[i, j, v], name=f'constr6_u_{i}_{j}_{v}')
+    # (7a)
+    for i in Stations:
+        if i not in Start_loc:
+            expr1, expr2 = LinExpr(), LinExpr()
+            for v in Veh:
+                for j in range(j_length):
+                    if i != j + 1:
+                        expr1.addTerms(1, q_ijv[i, j, v])
+                for j in Stations:
+                    if i != j:
+                        expr2.addTerms(1, q_ijv[j, i - 1, v])
+            model.addConstr(n_i[i - 1] == expr1 - expr2, name=f'constr7a_{i}')
+    # (7b)
+    for v in Veh:
+        if Start_loc[v] != 0:
+            expr = LinExpr()
+            for j in range(j_length):
+                if Start_loc[v] != j + 1:
+                    expr.addTerms(1, q_ijv[Start_loc[v], j, v])
+            model.addConstr(n_i[Start_loc[v] - 1] == expr - init_load[v], name=f'constr7b_{v}')
+    # (7c): set initial load to 0 if at depot
+    for v in Veh:
+        for j in range(j_length):
+            model.addConstr(q_ijv[0, j, v] == 0, name=f'constr7c_{v}_{j}')
+    # (8)  neglected: looser than Constr (10)
+    # (9a)
+    for i in Stations:
+        model.addConstr(0 <= I_i[i - 1], name=f'constr9a_l_{i}')
+        model.addConstr(I_i[i - 1] <= cap_s, name=f'constr9a_u_{i}')
+    # (9b)
+    for i in Stations:
+        expr = LinExpr()
+        for t in t_j:
+            expr.addTerms(ei_s_arr_ij[i - 1, t], p_ij[i, t])
+        model.addConstr(I_i[i - 1] == expr - n_i[i - 1], name=f'constr9b_{i}')
+    # (10)
+    for i in Stations:
+        for v in Veh:
+            model.addConstr(-cap_v <= n_i[i - 1], name=f'constr10_l_{i}_{v}')
+            model.addConstr(n_i[i - 1] <= cap_v, name=f'constr10_u_{i}_{v}')
+    # (11)
+    for i in All_nodes:
+        for j in range(j_length):
+            if i != j + 1:
+                for v in Veh:
+                    model.addConstr(
+                        (t_i[i] + d_mat[i, j] * x_ijv[i, j, v] - t_repo * (1 - x_ijv[i, j, v]) <= t_i[j + 1]),
+                        name=f'constr11_{i}_{j}_{v}')
+    # (12)
+    for i in Stations:
+        model.addConstr(0 <= t_i[i], name=f'constr12_l_{i}')
+        model.addConstr(t_i[i] <= z_i[i - 1] * t_repo, name=f'constr12_u_{i}')
+    # (13): set initial arriving time as t_left
+    for v in Veh:
+        model.addConstr(t_i[Start_loc[v]] == t_left[v], name=f'constr13_{v}')
+    # (14)&(15): sum of p_ij
+    for i in Stations:
+        expr1, expr2 = LinExpr(), LinExpr()
+        for j in t_j:
+            expr1.addTerms(1, p_ij[i, j])
+            expr2.addTerms(j, p_ij[i, j])
+        model.addConstr(expr1 == 1, name=f'constr14_{i}')
+        model.addConstr(expr2 == t_i[i], name=f'constr15_{i}')
+    # (16): concavity of w_i
+    for u in range(cap_s):
+        for i in Stations:
+            for t in t_j:
+                model.addConstr(w_it[i - 1, t] <= k_itu[i - 1, t, u] * I_i[i - 1] + b_itu[i - 1, t, u],
+                                name=f'constr16_{u}_{i}_{t}')
+
+    # objective - order profit
+    expr1, expr2, expr3, expr4, expr5 = QuadExpr(), QuadExpr(), QuadExpr(), LinExpr(), LinExpr()
+    for i in Stations:
+        for j in t_j:
+            expr1.addTerms(esd_arr_ij[i - 1, j], p_ij[i, j], z_i[i - 1])
+            expr2.addTerms(after_esd_arr_ij[i - 1, j], p_ij[i, j], z_i[i - 1])
+            expr3.addTerms(1, w_it[i - 1, j], p_ij[i, j])
+        expr4.addTerms(station_esd_list[i - 1], z_i[i - 1])
+    # objective - route cost
+    for v in Veh:
+        for i in range(i_length):
+            for j in range(j_length):
+                expr5.addTerms(cost_mat[i, j], x_ijv[i, j, v])
+    # objective
+    model.setObjective(ORDER_INCOME_UNIT * (expr1 + expr2 + expr3 - expr4) - alpha * expr5, GRB.MAXIMIZE)
+
+    model.setParam('TimeLimit', 1800)
+    model.optimize()
+    # model.computeIIS()
+    # model.write("model_file.ilp")
+    if model.status == GRB.Status.OPTIMAL:
+        print("Optimal solution found.")
+    elif model.status == GRB.Status.TIME_LIMIT:
+        print("Time limit reached.")
+    if model.SolCount > 0:
+        print(f"Current solution (lower bound): {model.objVal}")
+    print(f"Best bound (upper bound): {model.objBound}")
+    if model.SolCount > 0:
+        gap = (model.objBound - model.objVal) / (1e-10 + abs(model.objVal))
+        print(f"Gap: {gap * 100:.2f}%")
+
+
+def get_routes_gurobi_single_zhang(cap_v: int, cap_s: int, num_stations: int, t_left: list, init_loc: list,
+                                   init_load: list, x_s_arr: list, ei_s_arr: np.ndarray, esd_arr: np.ndarray,
+                                   c_mat: np.ndarray, cur_t: int, t_p: int, t_f: int, t_roll: int, alpha: float):
+    """the method adopted from Zhang et al. (2017)"""
+    pass
 
 
 def get_CG_REA_routes(num_of_van: int, van_location: list, van_dis_left: list, van_load: list, c_s: int, c_v: int,

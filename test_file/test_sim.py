@@ -55,8 +55,9 @@ if __name__ == '__main__':
 
     test_num = 10
 
-    test_single = False
-    test_policy = 'DP_test'
+    test_single = True
+    test_policy = 'Gurobi'
+    test_use_gurobi = True
 
     # MINLP model
     if test_single is True:
@@ -80,6 +81,7 @@ if __name__ == '__main__':
         test = Simulation(**test_case, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr)
         test.single = test_single
         test.policy = test_policy
+        test.use_gurobi = test_use_gurobi
         test.print_action = True
         test.run()
         # print(f'test_esd: {test.test_esd}')

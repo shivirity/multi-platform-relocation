@@ -139,7 +139,46 @@ class ESDComputer:
                 ]
                 return original_val
         else:
-            raise ValueError('mode should be multi')
+            assert mode == 'single', f'model is {mode}, which is not supported.'
+            if repo is True:
+                before_val = self.esd_arr[
+                    station_id - 1,
+                    self.t_cur,
+                    round(self.t_cur + t_arr) if round(self.t_cur + t_arr) < 49 else 48,
+                    x_s_arr[station_id - 1]]
+                assert round(self.ei_s_arr[
+                                 station_id - 1,
+                                 self.t_cur,
+                                 (round(self.t_cur + t_arr)) if (round(self.t_cur + t_arr)) < 49 else 48,
+                                 x_s_arr[station_id - 1]] + ins) >= 0
+                after_val = self.esd_arr[
+                    station_id - 1,
+                    round(self.t_cur + t_arr) if round(self.t_cur + t_arr) < 36 else 35,
+                    round(self.t_cur + self.t_fore) if (self.t_cur + self.t_fore) < 49 else 48,
+                    round(self.ei_s_arr[
+                              station_id - 1,
+                              self.t_cur,
+                              (round(self.t_cur + t_arr)) if (round(self.t_cur + t_arr)) < 49 else 48,
+                              x_s_arr[station_id - 1]] + ins)
+                ]
+                if delta is False:
+                    return before_val + after_val
+                else:
+                    original_val = self.esd_arr[
+                        station_id - 1,
+                        self.t_cur,
+                        round(self.t_cur + self.t_fore) if (self.t_cur + self.t_fore) < 49 else 48,
+                        x_s_arr[station_id - 1]
+                    ]
+                    return before_val + after_val - original_val
+            else:
+                original_val = self.esd_arr[
+                    station_id - 1,
+                    self.t_cur,
+                    round(self.t_cur + self.t_fore) if (self.t_cur + self.t_fore) < 49 else 48,
+                    x_s_arr[station_id - 1]
+                ]
+                return original_val
 
     def compute_route(self, r: list, t_left: int, init_l: int, x_s_arr: list, x_c_arr: list,
                       t_repo: int = 0, can_stay: bool = False, to_print: bool = True):
