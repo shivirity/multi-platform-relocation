@@ -5029,7 +5029,352 @@ def get_routes_gurobi_single_zhang(cap_v: int, cap_s: int, num_stations: int, t_
                                    init_load: list, x_s_arr: list, ei_s_arr: np.ndarray, esd_arr: np.ndarray,
                                    c_mat: np.ndarray, cur_t: int, t_p: int, t_f: int, t_roll: int, alpha: float):
     """the method adopted from Zhang et al. (2017)"""
-    pass
+    esd_computer = ESDComputer(
+        esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=np.array([0]), t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+    station_esd_list = [
+        esd_computer.compute_ESD_in_horizon(
+            station_id=i,
+            t_arr=0,
+            ins=0,
+            x_s_arr=x_s_arr,
+            x_c_arr=[0],
+            mode='single',
+            delta=True,
+            repo=False
+        ) for i in range(1, num_stations + 1)
+    ]
+    reg_t = round(cur_t - RE_START_T / 10)
+    t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
+    num_veh = len(t_left)
+    STAY_TIME = 1
+    # consts
+    k_stu = np.zeros((num_stations, t_repo + 1, cap_s))
+    b_stu = np.zeros((num_stations, t_repo + 1, cap_s))
+    for i in range(1, num_stations + 1):
+        for t in range(t_repo + 1):
+            yy = esd_arr[
+                i - 1,
+                round(reg_t + t) if round(reg_t + t) < 36 else 35,
+                round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                0]
+            yyy = esd_arr[
+                i - 1,
+                round(reg_t + t) if round(reg_t + t) < 36 else 35,
+                round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                round(ei_s_arr[
+                          i - 1,
+                          reg_t,
+                          round(reg_t + t) if round(reg_t + t) < 49 else 48,
+                          x_s_arr[i - 1]])
+            ]
+            former_x, former_y = 0, yy - yyy
+            for I in range(1, cap_s + 1):
+                yy = esd_arr[
+                    i - 1,
+                    round(reg_t + t) if round(reg_t + t) < 36 else 35,
+                    round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                    I]
+                cur_x, cur_y = I, yy - yyy
+                k_stu[i - 1, t, I - 1] = (cur_y - former_y) / (cur_x - former_x)
+                b_stu[i - 1, t, I - 1] = cur_y - k_stu[i - 1, t, I - 1] * cur_x
+                former_x, former_y = cur_x, cur_y
+    c_strp = np.zeros((num_stations + 1, t_repo + 1, num_stations + 1, t_repo + 1))
+    M = 1000
+    for s in range(num_stations + 1):
+        for t in range(t_repo + 1):
+            for s_prime in range(num_stations + 1):
+                if s_prime != s:
+                    for t_prime in range(t_repo + 1):
+                        if t_prime != t + c_mat[s, s_prime]:
+                            c_strp[s, t, s_prime, t_prime] = M
+                        else:
+                            c_strp[s, t, s_prime, t_prime] = c_mat[s, s_prime] if s == 0 else c_mat[s, s_prime] - 1
+                else:  # s_prime == s
+                    for t_prime in range(t_repo + 1):
+                        c_strp[s, t, s_prime, t_prime] = M if t_prime != t + STAY_TIME else 0
+
+    # build the model
+    model = Model('single_info_Model')
+    # Sets
+    Source_loc = list(init_loc)  # start location, t == -1
+    Dummy_end = [0]  # N_-
+    Stations = [i for i in range(1, num_stations + 1)]  # S
+    Station_with_depot = [i for i in range(num_stations + 1)]  # {0} and S
+    Times = [i for i in range(t_repo + 1)]  # T
+
+    # Variables
+    x_strp = model.addVars(Station_with_depot+[_ for _ in range(100, 100 + num_veh)]+[200], Times,
+                           Station_with_depot+[_ for _ in range(100, 100 + num_veh)]+[200], Times,
+                           vtype=GRB.BINARY, name='x_strp')
+    y_strp = model.addVars(Station_with_depot+[_ for _ in range(100, 100 + num_veh)]+[200], Times,
+                           Station_with_depot+[_ for _ in range(100, 100 + num_veh)]+[200], Times,
+                           vtype=GRB.INTEGER, name='y_strp')
+    z_s = model.addVars(Stations, vtype=GRB.BINARY, name='z_s')
+    delta_st = model.addVars(Stations, Times, lb=-GRB.INFINITY, vtype=GRB.INTEGER, name='delta_st')
+    w_st = model.addVars(Stations, Times, lb=-GRB.INFINITY, vtype=GRB.CONTINUOUS, name='w_st')
+    I_st = model.addVars(Stations, Times, vtype=GRB.INTEGER, name='I_st')
+
+    # Constraints
+    # (1)
+    for s in Station_with_depot:
+        for t in Times:
+            in_expr, out_expr = LinExpr(), LinExpr()
+            if t == 0:
+                for v in range(num_veh):
+                    if Source_loc[v] == s and t_left[v] == t:
+                        in_expr.addTerms(1, x_strp[100 + v, 0, s, t])  # source arc
+                Set_prime = Station_with_depot if s == 0 else Stations
+                for s_prime in Set_prime:
+                    if s_prime != s:
+                        if c_mat[s, s_prime] + t <= t_repo:
+                            out_expr.addTerms(1, x_strp[s, t, s_prime, t + round(c_mat[s, s_prime])])  # moving arc
+                    else:
+                        out_expr.addTerms(1, x_strp[s, t, s_prime, t + STAY_TIME])  # staying arc
+            elif t < t_repo:
+                for v in range(num_veh):
+                    if Source_loc[v] == s and t_left[v] == t:
+                        in_expr.addTerms(1, x_strp[100 + v, 0, s, t])  # source arc
+                for s_prime in Station_with_depot:
+                    if s_prime != s:
+                        if t - c_mat[s_prime, s] >= 0:
+                            in_expr.addTerms(1, x_strp[s_prime, t - round(c_mat[s_prime, s]), s, t])
+                    else:
+                        in_expr.addTerms(1, x_strp[s_prime, t - STAY_TIME, s, t])
+                Set_prime = Station_with_depot if s == 0 else Stations
+                for s_prime in Set_prime:
+                    if s_prime != s:
+                        if c_mat[s, s_prime] + t <= t_repo:
+                            out_expr.addTerms(1, x_strp[s, t, s_prime, t + round(c_mat[s, s_prime])])
+                    else:
+                        out_expr.addTerms(1, x_strp[s, t, s_prime, t + STAY_TIME])
+            else:  # t == t_repo
+                for v in range(num_veh):
+                    if Source_loc[v] == s and t_left[v] == t:
+                        in_expr.addTerms(1, x_strp[100 + v, 0, s, t])
+                for s_prime in Station_with_depot:
+                    if s_prime != s:
+                        if t - c_mat[s_prime, s] >= 0:
+                            in_expr.addTerms(1, x_strp[s_prime, t - round(c_mat[s_prime, s]), s, t])
+                    else:
+                        in_expr.addTerms(1, x_strp[s_prime, t - STAY_TIME, s, t])
+                out_expr.addTerms(1, x_strp[s, t, 200, t_repo])
+
+            model.addConstr(in_expr == out_expr, name=f'constr1_{s}_{t}')
+    # (2)
+    for s in Stations:
+        for t in Times:
+            in_expr, out_expr = LinExpr(), LinExpr()
+            if t == 0:
+                for v in range(num_veh):
+                    if Source_loc[v] == s:
+                        in_expr.addTerms(1, y_strp[100 + v, 0, s, t])  # source arc
+                Set_prime = Station_with_depot if s == 0 else Stations
+                for s_prime in Set_prime:
+                    if s_prime != s:
+                        if c_mat[s, s_prime] + t <= t_repo:
+                            out_expr.addTerms(1, y_strp[s, t, s_prime, t + round(c_mat[s, s_prime])])  # moving arc
+                    else:
+                        out_expr.addTerms(1, y_strp[s, t, s_prime, t + STAY_TIME])  # staying arc
+            elif t < t_repo:
+                for v in range(num_veh):
+                    if Source_loc[v] == s:
+                        in_expr.addTerms(1, y_strp[100 + v, 0, s, t])  # source arc
+                for s_prime in Station_with_depot:
+                    if s_prime != s:
+                        if t - c_mat[s_prime, s] >= 0:
+                            in_expr.addTerms(1, y_strp[s_prime, t - round(c_mat[s_prime, s]), s, t])
+                    else:
+                        in_expr.addTerms(1, y_strp[s, t - STAY_TIME, s, t])
+                Set_prime = Station_with_depot if s == 0 else Stations
+                for s_prime in Set_prime:
+                    if s_prime != s:
+                        if c_mat[s, s_prime] + t <= t_repo:
+                            out_expr.addTerms(1, y_strp[s, t, s_prime, t + c_mat[s, s_prime]])
+                    else:
+                        out_expr.addTerms(1, y_strp[s, t, s_prime, t + STAY_TIME])
+            else:  # t == t_repo
+                for v in range(num_veh):
+                    if Source_loc[v] == s:
+                        in_expr.addTerms(1, y_strp[100 + v, 0, s, t])
+                for s_prime in Station_with_depot:
+                    if s_prime != s:
+                        if t - c_mat[s_prime, s] >= 0:
+                            in_expr.addTerms(1, y_strp[s_prime, t - c_mat[s_prime, s], s, t])
+                    else:
+                        in_expr.addTerms(1, y_strp[s, t - STAY_TIME, s, t])
+                out_expr.addTerms(1, y_strp[s, t, 200, t_repo])
+
+            model.addConstr(in_expr == out_expr + delta_st[s, t], name=f'constr2_{s}_{t}')
+    # (3)
+    for s in Stations:
+        expr = LinExpr()
+        for v in range(num_veh):
+            if Source_loc[v] == s:
+                expr.addTerms(1, x_strp[100 + v, 0, s, t_left[v]])
+        for t in Times:
+            for s_prime in Station_with_depot:
+                if s_prime != s and t - c_mat[s_prime, s] >= 0:
+                    expr.addTerms(1, x_strp[s_prime, t - c_mat[s_prime, s], s, t])
+        model.addConstr(expr == z_s[s], name=f'constr3_{s}')
+    # (4)
+    for s in Stations:
+        for t in Times:
+            model.addConstr(
+                delta_st[s, t] + round(ei_s_arr[s - 1, reg_t, reg_t + t, x_s_arr[s - 1]]) >= 0, name=f'constr4_l_{s}_{t}')
+            model.addConstr(
+                delta_st[s, t] + round(ei_s_arr[s - 1, reg_t, reg_t + t, x_s_arr[s - 1]]) <= cap_s, name=f'constr4_u_{s}_{t}')
+    # (5) & (6)
+    for s in Stations:
+        for t in Times:
+            expr = LinExpr()
+            for v in range(num_veh):
+                if s == Source_loc[v] and t == t_left[v]:
+                    expr.addTerms(1, x_strp[100 + v, 0, s, t])
+            for s_prime in Station_with_depot:
+                if s_prime != s and t - c_mat[s_prime, s] >= 0:
+                    expr.addTerms(1, x_strp[s_prime, t - c_mat[s_prime, s], s, t])
+            model.addConstr(delta_st[s, t] <= min(cap_s, cap_v) * expr, name=f'constr5_{s}_{t}')
+            model.addConstr(delta_st[s, t] >= -min(cap_s, cap_v) * expr, name=f'constr6_{s}_{t}')
+    # (7)
+    for v in range(num_veh):
+        model.addConstr(x_strp[100 + v, 0, Source_loc[v], t_left[v]] == 1, name=f'constr7_a_{v}')
+        expr = LinExpr()
+        for s in Station_with_depot:
+            for t in Times:
+                expr.addTerms(1, x_strp[100 + v, 0, s, t])
+        model.addConstr(expr == 1, name=f'constr7_b_{v}')
+    # (8)
+    for v in range(num_veh):
+        model.addConstr(y_strp[100 + v, 0, Source_loc[v], t_left[v]] == init_load[v], name=f'constr8_a_{v}')
+        expr = LinExpr()
+        for s in Station_with_depot:
+            for t in Times:
+                expr.addTerms(1, y_strp[100 + v, 0, s, t])
+        model.addConstr(expr == init_load[v], name=f'constr8_b_{v}')
+    # (9)
+    for s in Station_with_depot:
+        for t in Times:
+            Set_prime = Station_with_depot if s == 0 else Stations
+            for s_prime in Set_prime:
+                for t_prime in range(t + 1, t_repo + 1):
+                    model.addConstr(
+                        y_strp[s, t, s_prime, t_prime] <= cap_v * x_strp[s, t, s_prime, t_prime],
+                        name=f'constr9_{s}_{t}_{s_prime}_{t_prime}')
+    # (10)
+    for s in Stations:
+        for t in Times:
+            model.addConstr(I_st[s, t] == delta_st[s, t] + round(ei_s_arr[s - 1, reg_t, reg_t + t, x_s_arr[s - 1]]),
+                            name=f'constr10_{s}_{t}')
+    # (11): concavity of w_st
+    for u in range(cap_s):
+        for s in Stations:
+            for t in Times:
+                model.addConstr(w_st[s, t] <= k_stu[s - 1, t, u] * I_st[s, t] + b_stu[s - 1, t, u],
+                                name=f'constr11_{u}_{s}_{t}')
+
+    # objective - order profit
+    # sum of c_strp * x_strp for all arcs
+    expr1 = LinExpr()
+    for s in Station_with_depot:
+        for t in Times:
+            Set_prime = Station_with_depot if s == 0 else Stations
+            for s_prime in Set_prime:
+                if s_prime != s:
+                    if t + c_mat[s, s_prime] <= t_repo:
+                        expr1.addTerms(c_strp[s, t, s_prime, t + round(c_mat[s, s_prime])],
+                                       x_strp[s, t, s_prime, t + round(c_mat[s, s_prime])])
+                else:
+                    if t + STAY_TIME <= t_repo:
+                        expr1.addTerms(c_strp[s, t, s_prime, t + STAY_TIME], x_strp[s, t, s_prime, t + STAY_TIME])
+    # sum of order profit before operation
+    expr2, expr3, expr4 = LinExpr(), LinExpr(), LinExpr()
+    for s in Station_with_depot:
+        for t in Times:
+            Set_prime = Station_with_depot if s == 0 else Stations
+            for s_prime in Set_prime:
+                if s_prime != s and t + c_mat[s, s_prime] <= t_repo and s_prime != 0:
+                    expr2.addTerms(esd_arr[s_prime - 1, reg_t, reg_t + t + round(c_mat[s, s_prime]), x_s_arr[s_prime - 1]],
+                                   x_strp[s, t, s_prime, t + round(c_mat[s, s_prime])])
+                    expr3.addTerms(1, w_st[s_prime, t + round(c_mat[s, s_prime])])
+                    expr4.addTerms(esd_arr[s_prime - 1,
+                    round(reg_t + t + c_mat[s, s_prime]) if round(reg_t + t + c_mat[s, s_prime]) < 36 else 35,
+                    round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                    round(
+                        ei_s_arr[
+                            s_prime - 1,
+                            reg_t,
+                            round(reg_t + t + c_mat[s, s_prime]) if round(reg_t + t + c_mat[s, s_prime]) < 49 else 48,
+                            x_s_arr[s_prime - 1]
+                        ]
+                    )], x_strp[s, t, s_prime, t + round(c_mat[s, s_prime])])
+    for v in range(num_veh):
+        if Source_loc[v] != 0:
+            expr2.addTerms(esd_arr[Source_loc[v] - 1, reg_t, reg_t + t_left[v], x_s_arr[Source_loc[v] - 1]],
+                           x_strp[100 + v, 0, Source_loc[v], t_left[v]])
+            expr3.addTerms(1, w_st[Source_loc[v], t_left[v]])
+            expr4.addTerms(1,
+                           esd_arr[
+                               Source_loc[v] - 1,
+                               round(reg_t + t_left[v]) if round(reg_t + t_left[v]) < 36 else 35,
+                               round(reg_t + t_f) if round(reg_t + t_f) < 49 else 48,
+                               round(
+                                   ei_s_arr[
+                                       Source_loc[v] - 1,
+                                       reg_t,
+                                       round(reg_t + t_left[v]) if round(reg_t + t_left[v]) < 49 else 48,
+                                       x_s_arr[Source_loc[v] - 1]
+                                   ]
+                               )
+                           ] * x_strp[100 + v, 0, Source_loc[v], t_left[v]])
+    # sum of unvisited stations
+    expr5 = LinExpr()
+    for s in Stations:
+        expr5.addTerms(-station_esd_list[s - 1], z_s[s])
+    # objective
+    # model.setObjective(-alpha * expr1 + ORDER_INCOME_UNIT * (expr2 + expr3 + expr4) + expr5, sense=GRB.MAXIMIZE)
+    model.setObjective(-alpha * expr1 + ORDER_INCOME_UNIT * (expr2 + expr3 + expr4), sense=GRB.MAXIMIZE)
+
+    # model.setParam('TimeLimit', 1800)
+    model.optimize()
+    # model.computeIIS()
+    # model.write("model_file.ilp")
+    if model.status == GRB.Status.OPTIMAL:
+        print("Optimal solution found.")
+    elif model.status == GRB.Status.TIME_LIMIT:
+        print("Time limit reached.")
+    if model.SolCount > 0:
+        print(f"Current solution (lower bound): {model.objVal}")
+    print(f"Best bound (upper bound): {model.objBound}")
+    if model.SolCount > 0:
+        gap = (model.objBound - model.objVal) / (1e-10 + abs(model.objVal))
+        print(f"Gap: {gap * 100:.2f}%")
+
+    after_depot_list = []
+    for v in range(num_veh):
+        print(f'Vehicle {v}:')
+        for s in Station_with_depot:
+            t = t_left[v]
+            if x_strp[100 + v, 0, s, t].x > 0.5:
+                print(f'x_strp[{100 + v}, 0, {s}, {t}] = {x_strp[100 + v, 0, s, t].x}, '
+                      f'y_strp[{100 + v}, 0, {s}, {t}] = {y_strp[100 + v, 0, s, t].x}')
+                cur_s, cur_t = s, t
+                break
+        while cur_t < t_repo:
+            for s in Station_with_depot:
+                for t in range(cur_t, t_repo + 1):
+                    if cur_s == 0:
+                        if s not in after_depot_list and x_strp[cur_s, cur_t, s, t].x > 0.5:
+                            print(f'x_strp[{cur_s}, {cur_t}, {s}, {t}] = {x_strp[cur_s, cur_t, s, t].x}, '
+                                  f'y_strp[{cur_s}, {cur_t}, {s}, {t}] = {y_strp[cur_s, cur_t, s, t].x}')
+                            cur_s, cur_t = s, t
+                            if s != 0:
+                                after_depot_list.append(s)
+                    else:  # cur_s != 0
+                        if x_strp[cur_s, cur_t, s, t].x > 0.5:
+                            print(f'x_strp[{cur_s}, {cur_t}, {s}, {t}] = {x_strp[cur_s, cur_t, s, t].x}, '
+                                  f'y_strp[{cur_s}, {cur_t}, {s}, {t}] = {y_strp[cur_s, cur_t, s, t].x}')
+                            cur_s, cur_t = s, t
+                            # print(f'cur_s={cur_s}, cur_t={cur_t}')
 
 
 def get_CG_REA_routes(num_of_van: int, van_location: list, van_dis_left: list, van_load: list, c_s: int, c_v: int,

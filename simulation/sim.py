@@ -16,7 +16,7 @@ import sys
 # from alns import get_relocation_routes
 from route_extension.route_extension_algo import get_REA_routes_test
 from route_extension.cg_re_algo import (get_CG_REA_routes, get_DP_routes_greedy, get_exact_cost,
-                                        get_routes_gurobi_single)
+                                        get_routes_gurobi_single, get_routes_gurobi_single_zhang)
 from route_extension.bph.BaP_algo import get_routes_branch_and_price
 
 random.seed(SEED)
@@ -635,7 +635,6 @@ class Simulation:
                         est_ins=[0 for _ in range(self.num_of_veh)]
                     )
                     if self.use_gurobi:
-                        # todo: test gurobi
                         max_reward, loc_list, inv_list = get_exact_cost(
                             cap_v=VEH_CAP,
                             cap_s=CAP_S,
@@ -808,7 +807,6 @@ class Simulation:
                             est_ins=scheduled_ins
                         )
                         if self.use_gurobi:
-                            # todo: test gurobi
                             max_reward, loc_list, inv_list = get_exact_cost(
                                 cap_v=VEH_CAP,
                                 cap_s=CAP_S,
@@ -1226,7 +1224,7 @@ class Simulation:
                 #     alpha=ALPHA,
                 #     est_ins=test_est_ins
                 # )
-                self.future_dec_dict = get_routes_gurobi_single(
+                self.future_dec_dict = get_routes_gurobi_single_zhang(
                     cap_v=VEH_CAP,
                     cap_s=CAP_S,
                     num_stations=len(self.stations),
@@ -1242,7 +1240,7 @@ class Simulation:
                     t_f=round(T_FORE / MIN_RUN_STEP),
                     t_roll=round(T_ROLL / MIN_RUN_STEP),
                     alpha=ALPHA,
-                )  # todo: fix this
+                )
                 print(self.future_dec_dict)
                 for veh in range(self.num_of_veh):
                     inv_dec = -1
@@ -1313,7 +1311,7 @@ class Simulation:
                             dec_list.append({'inv': None, 'route': None})
                 else:  # update dict
                     self.last_dec_t = self.t
-                    self.future_dec_dict = get_routes_gurobi_single(
+                    self.future_dec_dict = get_routes_gurobi_single_zhang(
                         cap_v=VEH_CAP,
                         cap_s=CAP_S,
                         num_stations=len(self.stations),
@@ -1329,7 +1327,7 @@ class Simulation:
                         t_f=round(T_FORE / MIN_RUN_STEP),
                         t_roll=round(T_ROLL / MIN_RUN_STEP),
                         alpha=ALPHA,
-                    )  # todo: fix this
+                    )
                     for veh in range(self.num_of_veh):
                         assert self.veh_info[veh][2] is not None
                         if self.veh_info[veh][2] == 0:  # time to decide
