@@ -11,7 +11,7 @@ from route_extension.route_extension_algo import ESDComputer
 def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_left: list, van_load: list, c_s: int,
                                 c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int, c_mat: np.ndarray,
                                 ei_s_arr: np.ndarray, ei_c_arr: np.ndarray, esd_arr: np.ndarray, x_s_arr: list,
-                                x_c_arr: list, alpha: float, est_ins: list) -> dict:
+                                x_c_arr: list, alpha: float, est_ins: list, mode: str) -> dict:
     """use branch and price to get the routes"""
     num_stations = c_mat.shape[0] - 1  # exclude the depot
     t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
@@ -24,7 +24,7 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
             ins=0,
             x_s_arr=x_s_arr,
             x_c_arr=x_c_arr,
-            mode='multi',
+            mode=mode,
             delta=True,
             repo=False
         ) for i in range(1, num_stations + 1)
@@ -34,7 +34,7 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
     greedy_problem = GreedySolution(num_of_van=num_of_van, van_location=van_location, van_dis_left=van_dis_left,
                                     van_load=van_load, c_s=c_s, c_v=c_v, cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll,
                                     c_mat=c_mat, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=x_s_arr,
-                                    x_c_arr=x_c_arr, alpha=alpha, est_ins=est_ins)
+                                    x_c_arr=x_c_arr, alpha=alpha, est_ins=est_ins, mode=mode)
     init_routes, init_profits = greedy_problem.generate_init_solution(computer=esd_computer)
     # ---------------------------- construct master problem ------------------------------------------
     mp = MasterProblem(num_veh=num_of_van, num_stations=num_stations, van_location=van_location,
@@ -44,7 +44,7 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
     # -------------------------------- run branch and price ------------------------------------------
     result_mp = branch_and_price(c_s=c_s, c_v=c_v, cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat,
                                  ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, computer=esd_computer,
-                                 alpha=alpha, master_prob=mp)
+                                 alpha=alpha, mode=mode, master_prob=mp)
 
     # ----------------------------------- get the routes ---------------------------------------------
     result_mp.integer_optimize()
@@ -55,7 +55,7 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
         veh_route = result['route'][veh][0]
         max_reward, loc_list, inv_list = esd_computer.compute_route(r=veh_route, t_left=van_dis_left[veh],
                                                                     init_l=van_load[veh], x_s_arr=x_s_arr,
-                                                                    x_c_arr=x_c_arr, t_repo=t_repo,
+                                                                    x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
                                                                     can_stay=True, to_print=False)
         best_route, best_inv = loc_list, inv_list
         clean_best_route = []
@@ -83,6 +83,11 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
                         round(cur_t - RE_START_T / 10 + step),
                         round(x_s_arr[best_route[step] - 1]),
                         round(x_c_arr[best_route[step] - 1])
+                    ] if mode == 'multi' else ei_s_arr[
+                        best_route[step] - 1,
+                        round(cur_t - RE_START_T / 10),
+                        round(cur_t - RE_START_T / 10 + step),
+                        round(x_s_arr[best_route[step] - 1])
                     ]
                     step_target_inv_list[step] = round(step_exp_inv_list[step]) + step_n_list[step]
                 else:

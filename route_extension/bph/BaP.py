@@ -7,7 +7,7 @@ from route_extension.bph.utils import Node, Stack
 from route_extension.bph.models import MasterProblem, HeuristicProblem
 from route_extension.route_extension_algo import ESDComputer
 from route_extension.cg_re_algo import get_dp_reduced_cost_bidirectional_numba, get_dp_reduced_cost_bidirectional
-from simulation.consts import NODE_LIMIT, RE_START_T, RE_END_T, CG_STOP_EPSILON, ORDER_INCOME_UNIT, SEED
+from simulation.consts import NODE_LIMIT, RE_START_T, RE_END_T, CG_STOP_EPSILON, ORDER_INCOME_UNIT, SEED, CAP_C
 
 random.seed(SEED)
 
@@ -37,7 +37,7 @@ def is_integer(number: float):
 
 def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int, c_mat: np.ndarray,
                      ei_s_arr: np.ndarray, ei_c_arr: np.ndarray, esd_arr: np.ndarray, computer: ESDComputer,
-                     alpha: float, master_prob: MasterProblem):
+                     alpha: float, mode: str, master_prob: MasterProblem):
     """main process of branch and price"""
 
     # Step1: Initialization
@@ -57,7 +57,7 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
         computer=computer, num_of_van=master_prob.num_veh, van_location=master_prob.van_location,
         van_dis_left=master_prob.van_dis_left, van_load=master_prob.van_load, c_s=c_s, c_v=c_v, cur_t=cur_t,
         t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr,
-        x_s_arr=master_prob.x_s_arr, x_c_arr=master_prob.x_c_arr, alpha=alpha, problem=master_prob
+        x_s_arr=master_prob.x_s_arr, x_c_arr=master_prob.x_c_arr, mode=mode, alpha=alpha, problem=master_prob
     )
     root_ed = time.process_time()
     print(f"Root node running time: {root_ed - root_st} seconds")
@@ -101,7 +101,7 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                                 van_dis_left=left_prob.van_dis_left, van_load=left_prob.van_load, c_s=c_s, c_v=c_v,
                                 cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat, ei_s_arr=ei_s_arr,
                                 ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=left_prob.x_s_arr,
-                                x_c_arr=left_prob.x_c_arr, alpha=alpha, problem=left_prob)
+                                x_c_arr=left_prob.x_c_arr, alpha=alpha, mode=mode, problem=left_prob)
             left_node.lp_obj = left_prob.relax_model.objVal
             left_lp_sol = left_prob.get_relax_solution()
             non_zero_routes_dict = left_prob.get_non_zero_routes(model='relax')
@@ -144,7 +144,7 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                                 van_dis_left=right_prob.van_dis_left, van_load=right_prob.van_load, c_s=c_s, c_v=c_v,
                                 cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat, ei_s_arr=ei_s_arr,
                                 ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=right_prob.x_s_arr,
-                                x_c_arr=right_prob.x_c_arr, alpha=alpha, problem=right_prob)
+                                x_c_arr=right_prob.x_c_arr, mode=mode, alpha=alpha, problem=right_prob)
             right_node.lp_obj = right_prob.relax_model.objVal
             right_lp_sol = right_prob.get_relax_solution()
             non_zero_routes_dict = right_prob.get_non_zero_routes(model='relax')
@@ -192,7 +192,7 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
 def solve_relax_problem(computer: ESDComputer, num_of_van: int, van_location: list, van_dis_left: list, van_load: list,
                         c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int, c_mat: np.ndarray,
                         ei_s_arr: np.ndarray, ei_c_arr: np.ndarray, esd_arr: np.ndarray, x_s_arr: list,
-                        x_c_arr: list, alpha: float, problem: MasterProblem) -> None:
+                        x_c_arr: list, alpha: float, mode: str, problem: MasterProblem) -> None:
     """solve the problem using column generation"""
     problem.relax_optimize()
     print(f"Relax model objVal: {problem.relax_model.objVal}, "
@@ -207,7 +207,7 @@ def solve_relax_problem(computer: ESDComputer, num_of_van: int, van_location: li
             computer=computer, num_of_van=num_of_van, van_location=van_location, van_dis_left=van_dis_left,
             van_load=van_load, c_s=c_s, c_v=c_v, cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat,
             ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=x_s_arr, x_c_arr=x_c_arr, alpha=alpha,
-            problem=problem)
+            mode=mode, problem=problem)
         ed = time.process_time()
         print(f'the {cg_times}th column generation time: {ed - st} seconds')
         cg_times += 1
@@ -223,7 +223,7 @@ def solve_relax_problem(computer: ESDComputer, num_of_van: int, van_location: li
 def column_generation(computer: ESDComputer, num_of_van: int, van_location: list, van_dis_left: list, van_load: list,
                       c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int, c_mat: np.ndarray,
                       ei_s_arr: np.ndarray, ei_c_arr: np.ndarray, esd_arr: np.ndarray, x_s_arr: list,
-                      x_c_arr: list, alpha: float, problem: MasterProblem) -> tuple:
+                      x_c_arr: list, alpha: float, mode: str, problem: MasterProblem) -> tuple:
     """column generation process, return generated columns and early stop flag"""
     num_stations = c_mat.shape[0] - 1  # exclude the depot
     t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
@@ -247,17 +247,26 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                                        4, 4, 4, 4, 4,
                                        5, 5, 5, 5, 5], dtype=np.int8)
         default_inv_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
+        if mode == 'multi':
+            com_ei_s_arr, com_esd_arr = ei_s_arr, esd_arr
+        else:
+            assert mode == 'single'
+            new_ei_shape, new_esd_shape = (*ei_s_arr.shape, CAP_C + 1), (*esd_arr.shape, CAP_C + 1)
+            com_ei_s_arr = np.broadcast_to(np.expand_dims(ei_s_arr, axis=-1), shape=new_ei_shape)
+            com_ei_s_arr = np.ascontiguousarray(com_ei_s_arr)
+            com_esd_arr = np.broadcast_to(np.expand_dims(esd_arr, axis=-1), shape=new_esd_shape)
+            com_esd_arr = np.ascontiguousarray(com_esd_arr)
         new_route = get_dp_reduced_cost_bidirectional_numba(
             cap_s=c_s, num_stations=num_stations, init_loc=van_location[0], init_t_left=van_dis_left[0],
             init_load=van_load[0], x_s_arr=np.array(x_s_arr, dtype=np.int32), x_c_arr=np.array(x_c_arr, dtype=np.int32),
-            ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p, t_f=t_f,
-            alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+            ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
+            t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
             inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
         )
         route = list(new_route)
         max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[0],
-                                                                init_l=van_load[0], x_s_arr=x_s_arr,
-                                                                x_c_arr=x_c_arr, t_repo=t_repo, can_stay=True)
+                                                                init_l=van_load[0], x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                mode=mode, t_repo=t_repo, can_stay=True)
         clean_route = []
         for k in loc_list:
             if k not in clean_route and k > -0.5:
@@ -274,19 +283,28 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
         else:  # use exact algorithm to find the route
             default_inv_id_arr = np.array(list(range(c_v + 1)), dtype=np.int8)
             default_inv_arr = np.array(list(range(c_v + 1)), dtype=np.int8)
+            if mode == 'multi':
+                com_ei_s_arr, com_esd_arr = ei_s_arr, esd_arr
+            else:
+                assert mode == 'single'
+                new_ei_shape, new_esd_shape = (*ei_s_arr.shape, CAP_C + 1), (*esd_arr.shape, CAP_C + 1)
+                com_ei_s_arr = np.broadcast_to(np.expand_dims(ei_s_arr, axis=-1), shape=new_ei_shape)
+                com_ei_s_arr = np.ascontiguousarray(com_ei_s_arr)
+                com_esd_arr = np.broadcast_to(np.expand_dims(esd_arr, axis=-1), shape=new_esd_shape)
+                com_esd_arr = np.ascontiguousarray(com_esd_arr)
             new_route = get_dp_reduced_cost_bidirectional_numba(
                 cap_s=c_s, num_stations=num_stations, init_loc=van_location[0], init_t_left=van_dis_left[0],
                 init_load=van_load[0], x_s_arr=np.array(x_s_arr, dtype=np.int32),
                 x_c_arr=np.array(x_c_arr, dtype=np.int32),
-                ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p, t_f=t_f,
-                alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
+                t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
                 inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
             )
             route = list(new_route)
             max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[0],
-                                                                    init_l=van_load[0], x_s_arr=x_s_arr,
-                                                                    x_c_arr=x_c_arr, t_repo=t_repo,
-                                                                    can_stay=True, to_print=False)
+                                                                    init_l=van_load[0], x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                    mode=mode, t_repo=t_repo, can_stay=True,
+                                                                    to_print=False)
             clean_route = []
             for k in loc_list:
                 if k not in clean_route and k > -0.5:
@@ -322,18 +340,27 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                                            4, 4, 4, 4, 4,
                                            5], dtype=np.int8)
             default_inv_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
+            if mode == 'multi':
+                com_ei_s_arr, com_esd_arr = ei_s_arr, esd_arr
+            else:
+                assert mode == 'single'
+                new_ei_shape, new_esd_shape = (*ei_s_arr.shape, CAP_C + 1), (*esd_arr.shape, CAP_C + 1)
+                com_ei_s_arr = np.broadcast_to(np.expand_dims(ei_s_arr, axis=-1), shape=new_ei_shape)
+                com_ei_s_arr = np.ascontiguousarray(com_ei_s_arr)
+                com_esd_arr = np.broadcast_to(np.expand_dims(esd_arr, axis=-1), shape=new_esd_shape)
+                com_esd_arr = np.ascontiguousarray(com_esd_arr)
             new_route = get_dp_reduced_cost_bidirectional_numba(
                 cap_s=c_s, num_stations=num_stations, init_loc=van_location[van], init_t_left=van_dis_left[van],
                 init_load=van_load[van], x_s_arr=np.array(x_s_arr, dtype=np.int32),
                 x_c_arr=np.array(x_c_arr, dtype=np.int32),
-                ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p, t_f=t_f,
-                alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
+                t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
                 inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
             )
             route = list(new_route)
             max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[van],
                                                                     init_l=van_load[van], x_s_arr=x_s_arr,
-                                                                    x_c_arr=x_c_arr, t_repo=t_repo,
+                                                                    x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
                                                                     can_stay=True, to_print=False)
             clean_route = []
             for k in loc_list:
@@ -353,18 +380,27 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
             for van in range(num_of_van):
                 default_inv_id_arr = np.array(list(range(c_v + 1)), dtype=np.int8)
                 default_inv_arr = np.array(list(range(c_v + 1)), dtype=np.int8)
+                if mode == 'multi':
+                    com_ei_s_arr, com_esd_arr = ei_s_arr, esd_arr
+                else:
+                    assert mode == 'single'
+                    new_ei_shape, new_esd_shape = (*ei_s_arr.shape, CAP_C + 1), (*esd_arr.shape, CAP_C + 1)
+                    com_ei_s_arr = np.broadcast_to(np.expand_dims(ei_s_arr, axis=-1), shape=new_ei_shape)
+                    com_ei_s_arr = np.ascontiguousarray(com_ei_s_arr)
+                    com_esd_arr = np.broadcast_to(np.expand_dims(esd_arr, axis=-1), shape=new_esd_shape)
+                    com_esd_arr = np.ascontiguousarray(com_esd_arr)
                 new_route = get_dp_reduced_cost_bidirectional_numba(
                     cap_s=c_s, num_stations=num_stations, init_loc=van_location[van], init_t_left=van_dis_left[van],
                     init_load=van_load[van], x_s_arr=np.array(x_s_arr, dtype=np.int32),
                     x_c_arr=np.array(x_c_arr, dtype=np.int32),
-                    ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p, t_f=t_f,
-                    alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                    ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
+                    t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
                     inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
                 )
                 route = list(new_route)
                 max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[van],
                                                                         init_l=van_load[van], x_s_arr=x_s_arr,
-                                                                        x_c_arr=x_c_arr, t_repo=t_repo,
+                                                                        x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
                                                                         can_stay=True, to_print=False)
                 clean_route = []
                 for k in loc_list:

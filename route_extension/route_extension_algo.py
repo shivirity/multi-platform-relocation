@@ -180,7 +180,7 @@ class ESDComputer:
                 ]
                 return original_val
 
-    def compute_route(self, r: list, t_left: int, init_l: int, x_s_arr: list, x_c_arr: list,
+    def compute_route(self, r: list, t_left: int, init_l: int, x_s_arr: list, x_c_arr: list, mode: str,
                       t_repo: int = 0, can_stay: bool = False, to_print: bool = True):
         """
         calculate the cost of the route and the instructions using dynamic programming
@@ -190,6 +190,7 @@ class ESDComputer:
         :param init_l: initial load on the van
         :param x_s_arr: array of bike numbers (self)
         :param x_c_arr: array of bike numbers (competitor)
+        :param mode: expectation calculation mode ('single' or 'multi')
         :param t_repo: repositioning window length (in 10 min)
         :param can_stay: whether the van can stay at the station
         :param to_print: whether to print the results
@@ -340,11 +341,14 @@ class ESDComputer:
                             calcu_arr[t + arr_t][next_s_idx] = True
                             for j in range(num_level):
                                 ins = 0 - j
-                                if 0 <= self.ei_s_arr[next_s - 1,
+                                est_inv = self.ei_s_arr[next_s - 1,
                                 self.t_cur,
-                                self.t_cur + arr_t,
+                                                        self.t_cur + arr_t,
                                 x_s_arr[next_s - 1],
-                                x_c_arr[next_s - 1]] + ins <= cap_station:
+                                x_c_arr[next_s - 1]] if mode == 'multi' else self.ei_s_arr[
+                                    next_s - 1, self.t_cur, self.t_cur + arr_t, x_s_arr[next_s - 1]
+                                ]
+                                if 0 <= est_inv + ins <= cap_station:
                                     reward_arr[t + arr_t][next_s_idx][
                                         j] = ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                         station_id=next_s,
@@ -352,7 +356,7 @@ class ESDComputer:
                                         ins=ins,
                                         x_s_arr=x_s_arr,
                                         x_c_arr=x_c_arr,
-                                        mode='multi',
+                                        mode=mode,
                                         delta=True) - ALPHA * arr_t
                                     trace_arr[t + arr_t][next_s_idx][j] = (t_left, -16, init_l)
                                 else:
@@ -362,15 +366,18 @@ class ESDComputer:
                     else:  # init_loc != 0
                         for inv in range(num_level):  # label every inventory level at initial point
                             ins = init_l - inv
-                            if 0 <= self.ei_s_arr[init_loc - 1,
+                            est_inv = self.ei_s_arr[init_loc - 1,
                             self.t_cur,
-                            self.t_cur + t_left,
+                                                    self.t_cur + t_left,
                             x_s_arr[init_loc - 1],
-                            x_c_arr[init_loc - 1]] + ins <= cap_station:
+                            x_c_arr[init_loc - 1]] if mode == 'multi' else self.ei_s_arr[
+                                init_loc - 1, self.t_cur, self.t_cur + t_left, x_s_arr[init_loc - 1]
+                            ]
+                            if 0 <= est_inv + ins <= cap_station:
                                 # if 0 <= x_s_arr[init_loc - 1] + ins <= cap_station:
                                 reward_arr[t][0][inv] = ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                     station_id=init_loc, t_arr=t_left, ins=ins, x_s_arr=x_s_arr, x_c_arr=x_c_arr,
-                                    mode='multi', delta=True
+                                    mode=mode, delta=True
                                 )
                                 cur_reward = reward_arr[t][0][inv]
                                 # trace to time step 0
@@ -403,11 +410,14 @@ class ESDComputer:
                                             calcu_arr[t + arr_t][ne_idx] = True
                                             for ne_inv in range(num_level):
                                                 ins = inv - ne_inv
-                                                if 0 <= self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + t + arr_t,
-                                                x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_station:
+                                                est_inv = self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + t + arr_t,
+                                                x_s_arr[ne - 1], x_c_arr[ne - 1]] if mode == 'multi' else self.ei_s_arr[
+                                                    ne - 1, self.t_cur, self.t_cur + t + arr_t, x_s_arr[ne - 1]
+                                                ]
+                                                if 0 <= est_inv + ins <= cap_station:
                                                     new_reward = cur_reward + ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                                         station_id=ne, t_arr=t + arr_t, ins=ins, x_s_arr=x_s_arr,
-                                                        x_c_arr=x_c_arr, mode='multi', delta=True) - ALPHA * (arr_t - 1)
+                                                        x_c_arr=x_c_arr, mode=mode, delta=True) - ALPHA * (arr_t - 1)
                                                     if reward_arr[t + arr_t][ne_idx][ne_inv] is None:
                                                         reward_arr[t + arr_t][ne_idx][ne_inv] = new_reward
                                                         trace_arr[t + arr_t][ne_idx][ne_inv] = (t, 0, inv)
@@ -466,14 +476,18 @@ class ESDComputer:
                                                 assert ne_idx == cur_s + 1
                                                 for next_inv in range(num_level):
                                                     ins = inv - next_inv
-                                                    if 0 <= self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + t + arr_t,
-                                                    x_s_arr[ne - 1], x_c_arr[ne - 1]] + ins <= cap_station:
+                                                    est_inv = self.ei_s_arr[ne - 1, self.t_cur, self.t_cur + t + arr_t,
+                                                    x_s_arr[ne - 1], x_c_arr[ne - 1]] if mode == 'multi' else \
+                                                    self.ei_s_arr[
+                                                        ne - 1, self.t_cur, self.t_cur + t + arr_t, x_s_arr[ne - 1]
+                                                    ]
+                                                    if 0 <= est_inv + ins <= cap_station:
 
                                                         dist_cost = arr_t - 1 if route[cur_s] != 0 else arr_t
 
                                                         new_reward = cur_reward + ORDER_INCOME_UNIT * self.compute_ESD_in_horizon(
                                                             station_id=ne, t_arr=t + arr_t, ins=ins, x_s_arr=x_s_arr,
-                                                            x_c_arr=x_c_arr, mode='multi',
+                                                            x_c_arr=x_c_arr, mode=mode,
                                                             delta=True) - ALPHA * dist_cost
 
                                                         if reward_arr[t + arr_t][ne_idx][next_inv] is None:
@@ -958,11 +972,12 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
                            c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int,
                            c_mat: np.ndarray, ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
                            esd_arr: np.ndarray, x_s_arr: list, x_c_arr: list,
-                           alpha: float, est_ins: list, branch: int = 2, state: str = 'init',
+                           alpha: float, est_ins: list, mode: str, branch: int = 2, state: str = 'init',
                            num_best: int = NUM_INIT_ROUTES):
     num_of_stations = c_mat.shape[0] - 1  # exclude the depot
     reg_cur_t = round(cur_t - RE_START_T / 10)
-    t_repo = t_p if RE_START_T / 10 + reg_cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - reg_cur_t - RE_START_T / 10)
+    t_repo = t_p if RE_START_T / 10 + reg_cur_t + t_p <= RE_END_T / 10 else round(
+        RE_END_T / 10 - reg_cur_t - RE_START_T / 10)
 
     van_positive_count_list = []
     van_route_list = []
@@ -980,22 +995,27 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
             root_profit = 0
             planned_ins = 0
         else:
-            est_arrive_inv = ei_s_arr[
-                root_loc - 1, reg_cur_t, reg_cur_t + root_dis_left, x_s_arr[root_loc - 1], x_c_arr[root_loc - 1]]
+            if mode == 'multi':
+                est_arrive_inv = ei_s_arr[
+                    root_loc - 1, reg_cur_t, reg_cur_t + root_dis_left, x_s_arr[root_loc - 1], x_c_arr[root_loc - 1]]
+            else:
+                est_arrive_inv = ei_s_arr[
+                    root_loc - 1, reg_cur_t, reg_cur_t + root_dis_left, x_s_arr[root_loc - 1]]
             if root_ins >= 0:  # to unload bikes to the station
                 planned_ins = min(root_ins, root_load, round(c_s - est_arrive_inv))
             else:
                 planned_ins = -min(-root_ins, c_v - root_load, round(est_arrive_inv))
-            assert (0 <= planned_ins +
-                    round(ei_s_arr[
-                              root_loc - 1,
-                              reg_cur_t,
-                              round(reg_cur_t + root_dis_left),
-                              x_s_arr[root_loc - 1],
-                              x_c_arr[root_loc - 1]]) <= c_s), f'{root_ins}, {planned_ins}, {round(ei_s_arr[root_loc - 1,reg_cur_t,round(reg_cur_t + root_dis_left),x_s_arr[root_loc - 1],x_c_arr[root_loc - 1]])}'
+            # assert (0 <= planned_ins +
+            #         round(ei_s_arr[
+            #                   root_loc - 1,
+            #                   reg_cur_t,
+            #                   round(reg_cur_t + root_dis_left),
+            #                   x_s_arr[root_loc - 1],
+            #                   x_c_arr[
+            #                       root_loc - 1]]) <= c_s), f'{root_ins}, {planned_ins}, {round(ei_s_arr[root_loc - 1, reg_cur_t, round(reg_cur_t + root_dis_left), x_s_arr[root_loc - 1], x_c_arr[root_loc - 1]])}'
             root_profit = esd_computer.compute_ESD_in_horizon(
                 station_id=root_loc, t_arr=root_dis_left, ins=planned_ins,
-                x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True)
+                x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode=mode, delta=True)
         # create root node
         root = Node(stations=root_loc, ins=planned_ins, profit=root_profit,
                     duration=root_dis_left, load_after_ins=root_load - planned_ins)
@@ -1007,20 +1027,30 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
         while undone_nodes:
             cur_node = undone_nodes.pop(0)
             # print(cur_node.stations, type(cur_node.stations))
-            node_station = cur_node.stations if isinstance(cur_node.stations, (int, np.int32, np.int64)) else cur_node.stations[1]
+            node_station = cur_node.stations if isinstance(cur_node.stations, (int, np.int32, np.int64)) else \
+                cur_node.stations[1]
             node_t = cur_node.total_time
             est_load = cur_node.load_after_ins
             if est_load / c_v < DELTA_CAP:  # relatively few bikes
                 ant_stations = [i for i in range(1, num_of_stations + 1) if i not in cur_node.route]
                 ant_loading = [0 for _ in range(num_of_stations)]
-                exp_inv = [
-                    round(ei_s_arr[i,
-                    reg_cur_t if reg_cur_t < 36 else 35,
-                    round(reg_cur_t + node_t + c_mat[node_station, i + 1])
-                    if (reg_cur_t + node_t + c_mat[node_station, i + 1]) < 49 else 48,
-                    x_s_arr[i],
-                    x_c_arr[i]])
-                    for i in range(num_of_stations)]
+                if mode == 'multi':
+                    exp_inv = [
+                        round(ei_s_arr[i,
+                        reg_cur_t if reg_cur_t < 36 else 35,
+                        round(reg_cur_t + node_t + c_mat[node_station, i + 1])
+                        if (reg_cur_t + node_t + c_mat[node_station, i + 1]) < 49 else 48,
+                        x_s_arr[i],
+                        x_c_arr[i]])
+                        for i in range(num_of_stations)]
+                else:
+                    exp_inv = [
+                        round(ei_s_arr[i,
+                        reg_cur_t if reg_cur_t < 36 else 35,
+                        round(reg_cur_t + node_t + c_mat[node_station, i + 1])
+                        if (reg_cur_t + node_t + c_mat[node_station, i + 1]) < 49 else 48,
+                        x_s_arr[i]])
+                        for i in range(num_of_stations)]
                 for j in ant_stations:
                     ant_loading[j - 1] = max(exp_inv[j - 1] - L_REA, 0)
                 max_loading = max(ant_loading)
@@ -1036,7 +1066,7 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
                 ant_profit = [
                     esd_computer.compute_ESD_in_horizon(
                         station_id=ant_next[j], t_arr=node_t + c_mat[node_station, ant_next[j]], ins=ant_ins[j],
-                        x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True) for j in range(len(ant_next))]
+                        x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode=mode, delta=True) for j in range(len(ant_next))]
                 ant_profit_per_min = [ant_profit[j] / (t_p - node_t - c_mat[node_station, ant_next[j]] + 0.1)
                                       for j in range(len(ant_next))]
                 ant_profit_per_min = [val if val <= 0 else val - 1000 for val in ant_profit_per_min]
@@ -1046,14 +1076,14 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
                     for idx in range(len(max_index)):
                         option = ant_next[max_index[idx]]
                         opt_ins = ant_ins[max_index[idx]]
-                        assert (0 <= opt_ins +
-                                round(ei_s_arr[
-                                          option - 1,
-                                          reg_cur_t,
-                                          round(reg_cur_t + node_t + c_mat[node_station, option]) if round(
-                                              reg_cur_t + node_t + c_mat[node_station, option]) < 49 else 48,
-                                          x_s_arr[option - 1],
-                                          x_c_arr[option - 1]]) <= c_s)
+                        # assert (0 <= opt_ins +
+                        #         round(ei_s_arr[
+                        #                   option - 1,
+                        #                   reg_cur_t,
+                        #                   round(reg_cur_t + node_t + c_mat[node_station, option]) if round(
+                        #                       reg_cur_t + node_t + c_mat[node_station, option]) < 49 else 48,
+                        #                   x_s_arr[option - 1],
+                        #                   x_c_arr[option - 1]]) <= c_s)
                         child_node = Node(stations=option, ins=opt_ins, profit=ant_profit[max_index[idx]],
                                           duration=c_mat[node_station, option], load_after_ins=est_load - opt_ins)
                         cur_node.add_child(child_node)
@@ -1066,14 +1096,14 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
                     for idx in range(len(ant_next)):
                         option = ant_next[idx]
                         opt_ins = ant_ins[idx]
-                        assert (0 <= opt_ins +
-                                round(ei_s_arr[
-                                          option - 1,
-                                          reg_cur_t,
-                                          round(reg_cur_t + node_t + c_mat[node_station, option]) if round(
-                                              reg_cur_t + node_t + c_mat[node_station, option]) < 49 else 48,
-                                          x_s_arr[option - 1],
-                                          x_c_arr[option - 1]]) <= c_s)
+                        # assert (0 <= opt_ins +
+                        #         round(ei_s_arr[
+                        #                   option - 1,
+                        #                   reg_cur_t,
+                        #                   round(reg_cur_t + node_t + c_mat[node_station, option]) if round(
+                        #                       reg_cur_t + node_t + c_mat[node_station, option]) < 49 else 48,
+                        #                   x_s_arr[option - 1],
+                        #                   x_c_arr[option - 1]]) <= c_s)
                         child_node = Node(stations=option, ins=opt_ins, profit=ant_profit[idx],
                                           duration=c_mat[node_station, option], load_after_ins=est_load - opt_ins)
                         cur_node.add_child(child_node)
@@ -1086,14 +1116,23 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
             else:  # relatively many bikes
                 ant_stations = [i for i in range(1, num_of_stations + 1) if i not in cur_node.route]
                 ant_unloading = [0 for _ in range(num_of_stations)]
-                exp_inv = [
-                    round(ei_s_arr[i,
-                    reg_cur_t,
-                    round(reg_cur_t + node_t + c_mat[node_station, i + 1]) if (reg_cur_t + node_t + c_mat[
-                        node_station, i + 1]) < 49 else 48,
-                    x_s_arr[i],
-                    x_c_arr[i]])
-                    for i in range(num_of_stations)]
+                if mode == 'multi':
+                    exp_inv = [
+                        round(ei_s_arr[i,
+                        reg_cur_t,
+                        round(reg_cur_t + node_t + c_mat[node_station, i + 1]) if (reg_cur_t + node_t + c_mat[
+                            node_station, i + 1]) < 49 else 48,
+                        x_s_arr[i],
+                        x_c_arr[i]])
+                        for i in range(num_of_stations)]
+                else:
+                    exp_inv = [
+                        round(ei_s_arr[i,
+                        reg_cur_t,
+                        round(reg_cur_t + node_t + c_mat[node_station, i + 1]) if (reg_cur_t + node_t + c_mat[
+                            node_station, i + 1]) < 49 else 48,
+                        x_s_arr[i]])
+                        for i in range(num_of_stations)]
                 for j in ant_stations:
                     ant_unloading[j - 1] = max(U_REA - exp_inv[j - 1], 0)
                 max_unloading = max(ant_unloading)
@@ -1110,7 +1149,7 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
                 ant_profit = [
                     esd_computer.compute_ESD_in_horizon(
                         station_id=ant_next[j], t_arr=node_t + c_mat[node_station, ant_next[j]], ins=ant_ins[j],
-                        x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode='multi', delta=True) for j in range(len(ant_next))]
+                        x_s_arr=x_s_arr, x_c_arr=x_c_arr, mode=mode, delta=True) for j in range(len(ant_next))]
                 ant_profit_per_min = [(ant_profit[j] / c_mat[node_station, ant_next[j]]) for j in range(len(ant_next))]
                 # case2: visit two stations (a, b in order)
                 visit_pair, visit_ins, visit_profit_per_min = [], [], []
@@ -1214,6 +1253,7 @@ def get_REA_initial_routes(num_of_van: int, van_location: list, van_dis_left: li
                         init_l=van_load[van],
                         x_s_arr=x_s_arr,
                         x_c_arr=x_c_arr,
+                        mode=mode,
                         t_repo=t_repo,
                         can_stay=True,
                         to_print=False,

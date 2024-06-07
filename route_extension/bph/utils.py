@@ -2,7 +2,7 @@ import numpy as np
 from route_extension.bph.models import MasterProblem
 from route_extension.route_extension_algo import get_REA_initial_routes, ESDComputer
 from route_extension.cg_re_algo import get_dp_reduced_cost_bidirectional_numba
-from simulation.consts import RE_END_T
+from simulation.consts import RE_END_T, CAP_C
 
 
 class GreedySolution:
@@ -13,7 +13,7 @@ class GreedySolution:
     def __init__(self, num_of_van: int, van_location: list, van_dis_left: list,
                  van_load: list, c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int,
                  t_roll: int, c_mat: np.ndarray, ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
-                 esd_arr: np.ndarray, x_s_arr: list, x_c_arr: list, alpha: float, est_ins: list):
+                 esd_arr: np.ndarray, x_s_arr: list, x_c_arr: list, alpha: float, est_ins: list, mode: str):
         self.num_of_van = num_of_van
         self.van_location = van_location
         self.van_dis_left = van_dis_left
@@ -32,6 +32,7 @@ class GreedySolution:
         self.x_c_arr = x_c_arr
         self.alpha = alpha
         self.est_ins = est_ins
+        self.mode = mode
 
     def generate_init_solution(self, computer: ESDComputer):
 
@@ -55,7 +56,8 @@ class GreedySolution:
             alpha=self.alpha,
             est_ins=self.est_ins,
             branch=2,
-            state='init'
+            state='init',
+            mode=self.mode
         )
         num_stations = self.c_mat.shape[0] - 1
         t_repo = self.t_p if self.cur_t + self.t_p <= RE_END_T / 10 else round(RE_END_T / 10 - self.cur_t)
@@ -76,6 +78,15 @@ class GreedySolution:
                                            4, 4, 4, 4, 4,
                                            5], dtype=np.int8)
             default_inv_arr = np.array([0, 5, 10, 15, 20, 25], dtype=np.int8)
+            if self.mode == 'multi':
+                com_ei_s_arr, com_esd_arr = self.ei_s_arr, self.esd_arr
+            else:
+                assert self.mode == 'single'
+                new_ei_shape, new_esd_shape = (*self.ei_s_arr.shape, CAP_C + 1), (*self.esd_arr.shape, CAP_C + 1)
+                com_ei_s_arr = np.broadcast_to(np.expand_dims(self.ei_s_arr, axis=-1), shape=new_ei_shape)
+                com_ei_s_arr = np.ascontiguousarray(com_ei_s_arr)
+                com_esd_arr = np.broadcast_to(np.expand_dims(self.esd_arr, axis=-1), shape=new_esd_shape)
+                com_esd_arr = np.ascontiguousarray(com_esd_arr)
             route = get_dp_reduced_cost_bidirectional_numba(
                 cap_s=self.c_s,
                 num_stations=num_stations,
@@ -84,9 +95,9 @@ class GreedySolution:
                 init_load=self.van_load[veh],
                 x_s_arr=np.array(self.x_s_arr, dtype=np.int32),
                 x_c_arr=np.array(self.x_c_arr, dtype=np.int32),
-                ei_s_arr=self.ei_s_arr,
+                ei_s_arr=com_ei_s_arr,
                 ei_c_arr=self.ei_c_arr,
-                esd_arr=self.esd_arr,
+                esd_arr=com_esd_arr,
                 c_mat=self.c_mat,
                 cur_t=self.cur_t,
                 t_p=self.t_p,
@@ -103,7 +114,7 @@ class GreedySolution:
             max_reward, _, __ = computer.compute_route(r=route, t_left=self.van_dis_left[veh],
                                                        init_l=self.van_load[veh], x_s_arr=self.x_s_arr,
                                                        x_c_arr=self.x_c_arr, t_repo=t_repo,
-                                                       can_stay=True, to_print=False)
+                                                       can_stay=True, to_print=False, mode=self.mode)
             generated_routes[veh].append(list(route))
             generated_profits[veh].append(max_reward)
 
