@@ -101,3 +101,7 @@ NUM_VEHICLES = 2
 # in branch and price
 NODE_LIMIT = 100
 CG_STOP_EPSILON = 0.00000001
+
+# adjust single mode
+SINGLE_UB = 0.9
+SINGLE_LB = 0.5

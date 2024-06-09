@@ -4,7 +4,10 @@ import numpy as np
 from simulation.system import Station
 from order_preprocessing.sim.init import get_init_station
 
-from simulation.consts import MORN_ARR_RATE_FIX, MORN_DEP_RATE_FIX, AFT_ARR_RATE_FIX, AFT_DEP_RATE_FIX, OVERALL_RATE
+from simulation.consts import (MORN_ARR_RATE_FIX, MORN_DEP_RATE_FIX, AFT_ARR_RATE_FIX, AFT_DEP_RATE_FIX,
+                               OVERALL_RATE, SEED, SINGLE_LB, SINGLE_UB)
+
+np.random.seed(SEED)
 
 # load data
 with open(r'D:\Desktop\Multi-platform EBSS operations\multi-platform-relocation\data\veh_distance_matrix.pkl',
@@ -137,6 +140,42 @@ for i in [7, 13, 14, 16, 25]:  # plus dep - balanced
 for i in [5, 8, 10, 12, 24]:  # plus arr
     test_case_25['lambda_s_array'][168:, i-1] = test_case_25['lambda_s_array'][168:, i-1] * 1.4
     test_case_25['lambda_c_array'][168:, i-1] = test_case_25['lambda_c_array'][168:, i-1] * 1.4
+
+# 1.3 for test_case_25
+# total_count = 0  # only for calculate.py
+# change_count = 0
+# # adjust mu_s_array and mu_c_array in test_case
+# for i in range(test_case_25['mu_s_array'].shape[0]):
+#     for j in range(test_case_25['mu_s_array'].shape[1]):
+#         total_count += 1
+#         old_val = test_case_25['mu_s_array'][i, j] + test_case_25['mu_c_array'][i, j]
+#         test_case_25['mu_s_array'][i, j] = np.random.uniform(0, test_case_25['mu_s_array'][i, j])
+#         if test_case_25['mu_s_array'][i, j] > 1.3:
+#             test_case_25['mu_s_array'][i, j] = 1.3
+#         test_case_25['mu_c_array'][i, j] = old_val - test_case_25['mu_s_array'][i, j]
+#         change_count += 1
+#         # if i in [1, 11, 18, 19]:
+#         #     rand_num = np.random.uniform(-SINGLE_UB, -SINGLE_LB)
+#         # elif i in [4]:
+#         #     rand_num = np.random.uniform(-SINGLE_UB, -SINGLE_LB)
+#         # elif i in [7, 13, 14, 16, 25]:
+#         #     rand_num = np.random.uniform(-SINGLE_UB, -SINGLE_LB)
+#         # elif i in [5, 8, 10, 12, 24]:
+#         #     rand_num = np.random.uniform(SINGLE_LB, SINGLE_UB)
+#         # else:
+#         #     continue
+#         # old_val = test_case_25['mu_s_array'][i, j] + test_case_25['mu_c_array'][i, j]
+#         # # 将mu_s_array的值进行rand_num的调整，并保持mu_s_array+mu_c_array的值不变
+#         # if test_case_25['mu_s_array'][i, j] * (1 + rand_num) >= 0 and \
+#         #         test_case_25['mu_s_array'][i, j] * rand_num <= test_case_25['mu_c_array'][i, j]:
+#         #     test_case_25['mu_c_array'][i, j] = (test_case_25['mu_c_array'][i, j] -
+#         #                                         test_case_25['mu_s_array'][i, j] * rand_num)
+#         #     test_case_25['mu_s_array'][i, j] = test_case_25['mu_s_array'][i, j] * (1 + rand_num)
+#         #     change_count += 1
+#         # new_val = test_case_25['mu_s_array'][i, j] + test_case_25['mu_c_array'][i, j]
+#         # assert abs(old_val - new_val) < 1e-6
+# print(f'change rate: {change_count / total_count}')
+
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

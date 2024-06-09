@@ -52,12 +52,22 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
     re_clean_routes, re_step_exp_inv_list, re_step_target_inv_list = [], [], []
     re_step_loc_list, re_step_n_list = [], []
     for veh in range(num_of_van):
-        veh_route = result['route'][veh][0]
-        max_reward, loc_list, inv_list = esd_computer.compute_route(r=veh_route, t_left=van_dis_left[veh],
-                                                                    init_l=van_load[veh], x_s_arr=x_s_arr,
-                                                                    x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
-                                                                    can_stay=True, to_print=False)
-        best_route, best_inv = loc_list, inv_list
+        if len(result['route'][veh]) > 0:
+            veh_route = result['route'][veh][0]
+            max_reward, loc_list, inv_list = esd_computer.compute_route(r=veh_route, t_left=van_dis_left[veh],
+                                                                        init_l=van_load[veh], x_s_arr=x_s_arr,
+                                                                        x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
+                                                                        can_stay=True, to_print=False)
+            best_route, best_inv = loc_list, inv_list
+            print(f'best route: {best_route}, best inv: {best_inv}')
+        else:
+            best_route, best_inv = [van_location[veh] for _ in range(t_repo)], [van_load[veh] for _ in range(t_repo)]
+            # need to scan other vehicles in case they visit the same station todo: this is myopic
+            for v in range(num_of_van):
+                if v != veh and len(result['route'][v]) > 0 and van_location[veh] in result['route'][v][0]:
+                    result['route'][v][0].remove(van_location[veh])
+                    assert van_location[veh] not in result['route'][v][0]
+
         clean_best_route = []
         for k in best_route:
             if k not in clean_best_route and k > -0.5:

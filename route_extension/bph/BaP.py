@@ -70,7 +70,7 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
         root_lp_val = master_prob.relax_model.objVal
         global_upper_bound = root_lp_val
         print(f'Root global upper bound: {global_upper_bound}')
-        root_node = Node(node_id='1@0', lp_obj=root_lp_val, mp=master_prob)
+        root_node = Node(node_id='1', lp_obj=root_lp_val, mp=master_prob)
         stack.push(root_node)
         # ----------------- Step2.2: Update LB
         master_prob.integer_optimize()
@@ -228,11 +228,16 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
     num_stations = c_mat.shape[0] - 1  # exclude the depot
     t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
     lp_obj = problem.relax_model.objVal
-    dual_vector, visit_con_keys = problem.get_dual_vector()
+    dual_vector, veh_num_labels, visit_con_keys = problem.get_dual_vector()
     dual_van_vec, dual_station_vec = dual_vector[:num_of_van], dual_vector[num_of_van:num_stations + num_of_van]
     # adjust with new dual vector (in case there's any new constraints)
+    for idx in range(len(veh_num_labels)):
+        if veh_num_labels[idx]:
+            dual_van_vec = [val - dual_vector[num_stations + num_of_van + idx] for val in dual_van_vec]
+        else:
+            dual_van_vec = [val + dual_vector[num_stations + num_of_van + idx] for val in dual_van_vec]
     for idx in range(len(visit_con_keys)):
-        dual_station_vec[visit_con_keys[idx]] -= dual_vector[num_stations + num_of_van + idx]
+        dual_station_vec[visit_con_keys[idx]] -= dual_vector[num_stations + num_of_van + len(veh_num_labels) + idx]
     if all(x == van_location[0] for x in van_location) and \
             all(x == van_dis_left[0] for x in van_dis_left) and \
             all(x == van_load[0] for x in van_load):
@@ -435,9 +440,13 @@ def branch(node: Node):
     problem = node.mp
     node_id = node.node_id
     # 1. branch on number of vehicles
-    veh_vars = sum(problem.get_relax_solution())
-    if not is_integer(veh_vars):
-        assert False, f'need to branch on number of vehicles: {veh_vars}'
+    sum_veh_vars = sum(problem.get_relax_solution())
+    if not is_integer(sum_veh_vars):  # not is_integer(sum_veh_vars)
+        thd_lb = int(sum_veh_vars)
+        thd_ub = thd_lb + 1
+        left_node = branch_on_vehicle(node_id=node_id, problem=problem, threshold=thd_ub, branch_on=1)
+        right_node = branch_on_vehicle(node_id=node_id, problem=problem, threshold=thd_lb, branch_on=0)
+        return left_node, right_node
     else:
         # 2. branch on whether to visit station i
         station_vars = problem.get_relax_station_vars()
@@ -478,3 +487,29 @@ def branch_on_station(node_id: str, problem: MasterProblem, station: int, branch
         return new_node
     else:
         assert False, f'infeasible branch_on: {branch_on}'
+
+
+def branch_on_vehicle(node_id: str, problem: MasterProblem, threshold: int, branch_on: int) -> Node:
+    """
+    branch on number of vehicles
+
+    :param node_id:
+    :param problem:
+    :param threshold: given threshold
+    :param branch_on: 1 means be greater than, 0 means be less than
+    :return:
+    """
+    if branch_on == 1:
+        new_problem = problem.__deepcopy__()
+        # add constraints
+        new_problem.add_vehicle_num_constr(threshold=threshold, greater=True)
+        # create node
+        new_node = Node(node_id=f'{node_id}@0', lp_obj=0, mp=new_problem)
+        return new_node
+    elif branch_on == 0:
+        new_problem = problem.__deepcopy__()
+        # add constraints
+        new_problem.add_vehicle_num_constr(threshold=threshold, greater=False)
+        # create node
+        new_node = Node(node_id=f'{node_id}@1', lp_obj=0, mp=new_problem)
+        return new_node

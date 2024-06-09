@@ -71,7 +71,8 @@ class MasterProblem:
         self.model_x = None
         self.model_veh_cons = None
         self.model_node_cons = None
-        self.model_node_visit_cons = None  # disorder
+        self.model_node_visit_cons = None  # disorder, be a dict
+        self.model_veh_num_cons = None  # disorder, be a list
 
         self.must_visit_station = []
         self.must_not_visit_station = []
@@ -108,6 +109,11 @@ class MasterProblem:
             for node_idx in self.model_node_visit_cons.keys():
                 node_con_name = self.model_node_visit_cons[node_idx].ConstrName
                 new_mp.model_node_visit_cons[node_idx] = new_mp.model.getConstrByName(node_con_name)
+        if self.model_veh_num_cons is not None:
+            new_mp.model_veh_num_cons = []
+            for cons in self.model_veh_num_cons:
+                cons_name = cons.ConstrName
+                new_mp.model_veh_num_cons.append(new_mp.model.getConstrByName(cons_name))
 
         return new_mp
 
@@ -162,6 +168,23 @@ class MasterProblem:
         else:
             assert False, f'visit value {visit} is not valid. It should be 0 or 1.'
 
+    def add_vehicle_num_constr(self, threshold: int, greater: bool):
+        """add vehicle number constraint to the model"""
+        if greater:
+            if self.model_veh_num_cons is None:
+                self.model_veh_num_cons = []
+            self.model_veh_num_cons.append(self.model.addConstr(
+                gp.quicksum(self.model_x[k] for k in range(len(self.model_x))) >= threshold,
+                name=f'veh_num_{threshold}_{greater}'))
+            self.model.update()
+        else:
+            if self.model_veh_num_cons is None:
+                self.model_veh_num_cons = []
+            self.model_veh_num_cons.append(self.model.addConstr(
+                gp.quicksum(self.model_x[k] for k in range(len(self.model_x))) <= threshold,
+                name=f'veh_num_{threshold}_{greater}'))
+            self.model.update()
+
     def add_columns(self, column_pool: list, column_profit: list):
         """add latest generated columns to the model"""
         ex_veh_mat, ex_node_mat = None, None
@@ -190,6 +213,9 @@ class MasterProblem:
                 if self.model_node_visit_cons is not None:
                     for k in self.model_node_visit_cons.keys():
                         col.addTerms(tmp_node_mat[k, 0], self.model_node_visit_cons[k])
+                if self.model_veh_num_cons is not None:
+                    for con in self.model_veh_num_cons:
+                        col.addTerms(1, con)
                 self.model_x[len(self.route_pool)-1] = \
                     self.model.addVar(obj=van_profit[i], vtype=gp.GRB.BINARY, name=f'x{len(self.profit_pool)-1}',
                                       column=col)
@@ -220,6 +246,20 @@ class MasterProblem:
         veh_con_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in veh_con_names]
         node_con_names = [con.ConstrName for con in self.model_node_cons.values()]
         node_con_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in node_con_names]
+        if self.model_veh_num_cons is not None:
+            veh_num_con_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in
+                                 [con.ConstrName for con in self.model_veh_num_cons]]
+            # label >= as True, <= as False
+            veh_num_con_labels = []
+            for con in self.model_veh_num_cons:
+                if con.ConstrName.split('_')[-1] == 'True':
+                    veh_num_con_labels.append(True)
+                else:
+                    assert con.ConstrName.split('_')[-1] == 'False'
+                    veh_num_con_labels.append(False)
+        else:
+            veh_num_con_duals = []
+            veh_num_con_labels = []
         if self.model_node_visit_cons is not None:
             visit_con_keys = list(self.model_node_visit_cons.keys())
             visit_con_names = [con.ConstrName for con in self.model_node_visit_cons.values()]
@@ -227,8 +267,8 @@ class MasterProblem:
         else:
             visit_con_duals = []
             visit_con_keys = []
-        dual_vector = veh_con_duals + node_con_duals + visit_con_duals
-        return dual_vector, visit_con_keys
+        dual_vector = veh_con_duals + node_con_duals + veh_num_con_duals + visit_con_duals
+        return dual_vector, veh_num_con_labels, visit_con_keys
 
     def get_relax_veh_vars(self):
         relax_sol = self.get_relax_solution()

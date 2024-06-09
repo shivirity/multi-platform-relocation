@@ -362,7 +362,9 @@ class ESDComputer:
                                 else:
                                     pass
                         else:
-                            assert False, "don't reposition at any stations, starting from the depot"
+                            # max_reward, loc_list, inv_list
+                            return 0, [0 for _ in range(t_repo)], [-1 for _ in range(t_repo)]
+                            # don't reposition at any stations, starting from the depot
                     else:  # init_loc != 0
                         for inv in range(num_level):  # label every inventory level at initial point
                             ins = init_l - inv

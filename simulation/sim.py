@@ -1453,7 +1453,8 @@ class Simulation:
                 #     x_s_arr=test_x_s_arr,
                 #     x_c_arr=test_x_c_arr,
                 #     alpha=ALPHA,
-                #     est_ins=test_est_ins
+                #     est_ins=test_est_ins,
+                #     mode='single'
                 # )
                 # self.future_dec_dict = {'objective': 4190.522352925615, 'start_time': 84, 'routes': [[0, 5, 4, 6, 19, 12, 16], [0, 15, 7, 10, 8, 18]], 'exp_inv': [[0, 34.76888403354017, None, 1.3884099068276705, None, None, 36.34512042804721, None, 11.54645116635093, None, 38.70774301315821, None, 0.9211436567541507], [0, 0, 26.04215368940173, None, 1.0744787598225505, None, None, None, 30.01515586957035, None, 38.375582624506166, None, 4.419167753156481]], 'exp_target_inv': [[0, 10, None, 26, None, None, 11, None, 37, None, 14, None, 26], [0, 0, 1, None, 26, None, None, None, 19, None, 24, None, 29]], 'loc': [[0, 5, None, 4, None, None, 6, None, 19, None, 12, None, 16], [0, 0, 15, None, 7, None, None, None, 10, None, 8, None, 18]], 'n_r': [[0, -25, None, 25, None, None, -25, None, 25, None, -25, None, 25], [0, -100, -25, None, 25, None, None, None, -11, None, -14, None, 25]]}
                 print(self.future_dec_dict)
@@ -1501,7 +1502,8 @@ class Simulation:
                                     else:
                                         inv_dec = self.stations[cur_station].num_self  # do no repositioning
                                 if cur_ind < len(self.future_dec_dict['loc'][veh]) - 1:
-                                    if self.future_dec_dict['loc'][veh][cur_ind + 1] == cur_station:
+                                    if (self.future_dec_dict['loc'][veh][cur_ind + 1] == cur_station or
+                                            self.t / MIN_RUN_STEP + 1 >= RE_END_T / MIN_RUN_STEP):
                                         route_dec = cur_station  # stay at current station
                                     else:
                                         # assert self.future_dec_dict['loc'][veh][cur_ind + 1] is None, f"{self.future_dec_dict['loc'][veh][cur_ind + 1]}"
@@ -1530,6 +1532,28 @@ class Simulation:
                                          self.future_dec_dict['loc'][veh].index(
                                              self.veh_info[veh][1])] for veh in range(self.num_of_veh)]
                     print(f'scheduled_ins: {scheduled_ins}')
+
+                    # # test phase
+                    # if scheduled_ins[0] == 8 and scheduled_ins[1] == 23:
+                    #     import pickle
+                    #     # to dump
+                    #     with open('test_van_location.pkl', 'wb') as f:
+                    #         pickle.dump([self.veh_info[veh][1] for veh in range(self.num_of_veh)], f)
+                    #     with open('test_van_dis_left.pkl', 'wb') as f:
+                    #         pickle.dump([round(self.veh_info[veh][2] / MIN_RUN_STEP) for veh in range(self.num_of_veh)], f)
+                    #     with open('test_van_load.pkl', 'wb') as f:
+                    #         pickle.dump([self.veh_info[veh][3] for veh in range(self.num_of_veh)], f)
+                    #     with open('test_cur_t.pkl', 'wb') as f:
+                    #         pickle.dump(round(self.t / MIN_RUN_STEP), f)
+                    #     with open('test_x_s_arr.pkl', 'wb') as f:
+                    #         pickle.dump([val.num_self for val in self.stations.values()], f)
+                    #     with open('test_x_c_arr.pkl', 'wb') as f:
+                    #         pickle.dump([val.num_opponent for val in self.stations.values()], f)
+                    #     with open('test_scheduled_ins.pkl', 'wb') as f:
+                    #         pickle.dump(scheduled_ins, f)
+                    #
+                    #     assert False
+
                     self.future_dec_dict = get_routes_branch_and_price(
                         num_of_van=self.num_of_veh,
                         van_location=[self.veh_info[veh][1] for veh in range(self.num_of_veh)],
