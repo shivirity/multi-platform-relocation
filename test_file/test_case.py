@@ -127,21 +127,33 @@ test_case_25['lambda_c_array'][144:, :] = test_case_25['lambda_c_array'][144:, :
 test_case_25['mu_s_array'][144:, :] = test_case_25['mu_s_array'][144:, :] * AFT_DEP_RATE_FIX * OVERALL_RATE
 test_case_25['mu_c_array'][144:, :] = test_case_25['mu_c_array'][144:, :] * AFT_DEP_RATE_FIX * OVERALL_RATE
 
-# 14 -> 168, 21 -> 252
+# 14 -> 168, 21 -> 252, 22 -> 264
 for i in [1, 11, 18, 19]:  # plus dep
-    test_case_25['mu_s_array'][168:, i-1] = test_case_25['mu_s_array'][168:, i-1] * 1.4
-    test_case_25['mu_c_array'][168:, i-1] = test_case_25['mu_c_array'][168:, i-1] * 1.4
+    test_case_25['mu_s_array'][168:264, i-1] = test_case_25['mu_s_array'][168:264, i-1] * 1.4
+    test_case_25['mu_c_array'][168:264, i-1] = test_case_25['mu_c_array'][168:264, i-1] * 1.4
+    for j in range(264, test_case_25['mu_s_array'].shape[0]):
+        test_case_25['mu_s_array'][j, i-1] = test_case_25['mu_s_array'][j, i-1] * ((1 - 1.4)/24 * j + 11.5 * 1.4 - 10.5)
+        test_case_25['mu_c_array'][j, i-1] = test_case_25['mu_c_array'][j, i-1] * ((1 - 1.4)/24 * j + 11.5 * 1.4 - 10.5)
 for i in [4]:
-    test_case_25['mu_s_array'][168:, i-1] = test_case_25['mu_s_array'][168:, i-1] * 1.2
-    test_case_25['mu_c_array'][168:, i-1] = test_case_25['mu_c_array'][168:, i-1] * 1.2
+    test_case_25['mu_s_array'][168:264, i-1] = test_case_25['mu_s_array'][168:264, i-1] * 1.2
+    test_case_25['mu_c_array'][168:264, i-1] = test_case_25['mu_c_array'][168:264, i-1] * 1.2
+    for j in range(264, test_case_25['mu_s_array'].shape[0]):
+        test_case_25['mu_s_array'][j, i-1] = test_case_25['mu_s_array'][j, i-1] * ((1 - 1.2)/24 * j + 11.5 * 1.2 - 10.5)
+        test_case_25['mu_c_array'][j, i-1] = test_case_25['mu_c_array'][j, i-1] * ((1 - 1.2)/24 * j + 11.5 * 1.2 - 10.5)
 for i in [7, 13, 14, 16, 25]:  # plus dep - balanced
-    test_case_25['mu_s_array'][168:, i-1] = test_case_25['mu_s_array'][168:, i-1] * 1.7
-    test_case_25['mu_c_array'][168:, i-1] = test_case_25['mu_c_array'][168:, i-1] * 1.7
+    test_case_25['mu_s_array'][168:264, i-1] = test_case_25['mu_s_array'][168:264, i-1] * 1.7
+    test_case_25['mu_c_array'][168:264, i-1] = test_case_25['mu_c_array'][168:264, i-1] * 1.7
+    for j in range(264, test_case_25['mu_s_array'].shape[0]):
+        test_case_25['mu_s_array'][j, i-1] = test_case_25['mu_s_array'][j, i-1] * ((1 - 1.7)/24 * j + 11.5 * 1.7 - 10.5)
+        test_case_25['mu_c_array'][j, i-1] = test_case_25['mu_c_array'][j, i-1] * ((1 - 1.7)/24 * j + 11.5 * 1.7 - 10.5)
 for i in [5, 8, 10, 12, 24]:  # plus arr
-    test_case_25['lambda_s_array'][168:, i-1] = test_case_25['lambda_s_array'][168:, i-1] * 1.4
-    test_case_25['lambda_c_array'][168:, i-1] = test_case_25['lambda_c_array'][168:, i-1] * 1.4
+    test_case_25['lambda_s_array'][168:264, i-1] = test_case_25['lambda_s_array'][168:264, i-1] * 1.4
+    test_case_25['lambda_c_array'][168:264, i-1] = test_case_25['lambda_c_array'][168:264, i-1] * 1.4
+    for j in range(264, test_case_25['mu_s_array'].shape[0]):
+        test_case_25['lambda_s_array'][j, i-1] = test_case_25['lambda_s_array'][j, i-1] * ((1 - 1.4)/24 * j + 11.5 * 1.4 - 10.5)
+        test_case_25['lambda_c_array'][j, i-1] = test_case_25['lambda_c_array'][j, i-1] * ((1 - 1.4)/24 * j + 11.5 * 1.4 - 10.5)
 
-# 1.3 for test_case_25
+# # 1.3 for test_case_25
 # total_count = 0  # only for calculate.py
 # change_count = 0
 # # adjust mu_s_array and mu_c_array in test_case
@@ -175,22 +187,133 @@ for i in [5, 8, 10, 12, 24]:  # plus arr
 #         # new_val = test_case_25['mu_s_array'][i, j] + test_case_25['mu_c_array'][i, j]
 #         # assert abs(old_val - new_val) < 1e-6
 # print(f'change rate: {change_count / total_count}')
-
+#
+# total_count = 0
+# change_count = 0
+# dep_idx_list = []
+# dep_gap_list = []
+# aft_dep_idx_list = []
+# aft_dep_gap_list = []
+# # adjust mu_s_array and mu_c_array in test_case
+# for i in range(test_case_25['mu_s_array'].shape[0]):
+#     for j in range(test_case_25['mu_s_array'].shape[1]):
+#         old_val = test_case_25['mu_s_array'][i, j] + test_case_25['mu_c_array'][i, j]
+#         gap = test_case_25['mu_s_array'][i, j] - test_case_25['lambda_s_array'][i, j]
+#         if gap < 0:
+#             if test_case_25['mu_s_array'][i, j] - 3 * gap <= old_val:
+#                 test_case_25['mu_s_array'][i, j] -= 3 * gap
+#                 test_case_25['mu_c_array'][i, j] += 3 * gap
+#                 change_count += 1
+#             elif test_case_25['mu_s_array'][i, j] - 2 * gap <= old_val:
+#                 test_case_25['mu_s_array'][i, j] -= 2 * gap
+#                 test_case_25['mu_c_array'][i, j] += 2 * gap
+#                 change_count += 1
+#             elif test_case_25['mu_s_array'][i, j] - 1 * gap <= old_val:
+#                 test_case_25['mu_s_array'][i, j] -= 1 * gap
+#                 test_case_25['mu_c_array'][i, j] += 1 * gap
+#                 change_count += 1
+#                 assert test_case_25['mu_s_array'][i, j] == test_case_25['lambda_s_array'][i, j], (
+#                     f'{test_case_25["mu_s_array"][i, j]}'
+#                     f'{test_case_25["lambda_s_array"][i, j]}')
+#             else:
+#                 pass
+#         else:
+#             # record
+#             dep_idx_list.append((i, j))
+#             dep_gap_list.append(gap)
+#             if i >= 168:
+#                 aft_dep_idx_list.append((i, j))
+#                 aft_dep_gap_list.append(gap)
+#             # if test_case_25['mu_s_array'][i, j] - 1 * gap >= 0:
+#             #     test_case_25['mu_s_array'][i, j] -= 1 * gap
+#             #     test_case_25['mu_c_array'][i, j] += 1 * gap
+#             #     change_count += 1
+#             #     assert test_case_25['mu_s_array'][i, j] == test_case_25['lambda_s_array'][i, j], (
+#             #         f'{test_case_25["mu_s_array"][i, j]}'
+#             #         f'{test_case_25["lambda_s_array"][i, j]}')
+#             # else:
+#             #     pass
+#         total_count += 1
+# thd = np.percentile(aft_dep_gap_list, 0.0001)
+# print(f'length of aft_dep_gap_list: {len(aft_dep_gap_list)}')
+# inds = [i for i, x in enumerate(aft_dep_gap_list) if x <= thd]
+# aft_inds = [aft_dep_idx_list[i] for i in inds]
+# print(f'length of aft_inds: {len(aft_inds)}')
+# sel_aft_inds = [val for val in aft_inds if 17 * 12 <= val[0] <= 19 * 12]
+# sel_n = 30
+# if sel_n > len(sel_aft_inds):
+#     raise ValueError("n cannot be greater than the length of the list")
+# else:
+#     indices = np.arange(len(sel_aft_inds))
+#     sampled_indices = np.random.choice(indices, sel_n, replace=False)
+#     sel_aft_inds = [sel_aft_inds[i] for i in sampled_indices]
+# # aft_inds = []
+# for ind in range(len(dep_gap_list)):
+#     if dep_idx_list[ind] not in sel_aft_inds:
+#         i, j = dep_idx_list[ind]
+#         if test_case_25['mu_s_array'][i, j] - 1 * dep_gap_list[ind] >= 0:
+#             test_case_25['mu_s_array'][i, j] -= 1 * dep_gap_list[ind]
+#             test_case_25['mu_c_array'][i, j] += 1 * dep_gap_list[ind]
+#             change_count += 1
+#             assert test_case_25['mu_s_array'][i, j] == test_case_25['lambda_s_array'][i, j], (
+#                 f'{test_case_25["mu_s_array"][i, j]}'
+#                 f'{test_case_25["lambda_s_array"][i, j]}')
+#     else:
+#         i, j = dep_idx_list[ind]
+#         old_val = test_case_25['mu_s_array'][i, j] + test_case_25['mu_c_array'][i, j]
+#         test_case_25['mu_s_array'][i, j] = old_val * 2.5
+#         test_case_25['mu_c_array'][i, j] = old_val - test_case_25['mu_s_array'][i, j]
+#         change_count += 1
+#         # if test_case_25['mu_s_array'][i, j] + 4 * dep_gap_list[ind] <= old_val:
+#         #     test_case_25['mu_s_array'][i, j] += 4 * dep_gap_list[ind]
+#         #     test_case_25['mu_c_array'][i, j] -= 4 * dep_gap_list[ind]
+#         #     change_count += 1
+#         # elif test_case_25['mu_s_array'][i, j] + 3 * dep_gap_list[ind] <= old_val:
+#         #     test_case_25['mu_s_array'][i, j] += 3 * dep_gap_list[ind]
+#         #     test_case_25['mu_c_array'][i, j] -= 3 * dep_gap_list[ind]
+#         #     change_count += 1
+#         # elif test_case_25['mu_s_array'][i, j] + 2 * dep_gap_list[ind] <= old_val:
+#         #     test_case_25['mu_s_array'][i, j] += 2 * dep_gap_list[ind]
+#         #     test_case_25['mu_c_array'][i, j] -= 2 * dep_gap_list[ind]
+#         #     change_count += 1
+#         # elif test_case_25['mu_s_array'][i, j] + 1 * dep_gap_list[ind] <= old_val:
+#         #     test_case_25['mu_s_array'][i, j] += 1 * dep_gap_list[ind]
+#         #     test_case_25['mu_c_array'][i, j] -= 1 * dep_gap_list[ind]
+#         #     change_count += 1
+# print(f'change rate: {change_count / total_count}')
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     x_list = [i/2 for i in range(48)]
-    for i in range(25):
-        plt.figure(figsize=(8, 5), dpi=150)
-        lambda_s_list = list(test_case_25['lambda_s_array'][:, i])
-        mu_s_list = list(test_case_25['mu_s_array'][:, i])
-        # 每两项求和
-        lambda_s_list = [sum(lambda_s_list[i:i+6]) for i in range(0, len(lambda_s_list), 6)]
-        mu_s_list = [sum(mu_s_list[i:i+6]) for i in range(0, len(mu_s_list), 6)]
-        plt.plot(x_list, lambda_s_list, label='lambda_s')
-        # plt.plot(test_case_25['lambda_c_array'][:, i], label='lambda_c')
-        plt.plot(x_list, mu_s_list, label='mu_s')
-        # plt.plot(test_case_25['mu_c_array'][:, i], label='mu_c')
-        plt.legend()
-        plt.title(f'Station {i+1}')
-        plt.show()
+    # for i in range(25):
+    #     plt.figure(figsize=(8, 5), dpi=150)
+    #     lambda_s_list = list(test_case_25['lambda_s_array'][:, i])
+    #     mu_s_list = list(test_case_25['mu_s_array'][:, i])
+    #     # 每两项求和
+    #     lambda_s_list = [sum(lambda_s_list[i:i+6]) for i in range(0, len(lambda_s_list), 6)]
+    #     mu_s_list = [sum(mu_s_list[i:i+6]) for i in range(0, len(mu_s_list), 6)]
+    #     plt.plot(x_list, lambda_s_list, label='lambda_s')
+    #     # plt.plot(test_case_25['lambda_c_array'][:, i], label='lambda_c')
+    #     plt.plot(x_list, mu_s_list, label='mu_s')
+    #     # plt.plot(test_case_25['mu_c_array'][:, i], label='mu_c')
+    #     plt.legend()
+    #     plt.title(f'Station {i+1}')
+    #     plt.show()
+    # draw the sum of all stations
+    plt.figure(figsize=(8, 5), dpi=150)
+    lambda_s_list = list(np.sum(test_case_25['lambda_s_array'], axis=1))
+    lambda_c_list = list(np.sum(test_case_25['lambda_c_array'], axis=1))
+    mu_s_list = list(np.sum(test_case_25['mu_s_array'], axis=1))
+    mu_c_list = list(np.sum(test_case_25['mu_c_array'], axis=1))
+    # 每两项求和
+    lambda_s_list = [sum(lambda_s_list[i:i + 6]) for i in range(0, len(lambda_s_list), 6)]
+    mu_s_list = [sum(mu_s_list[i:i + 6]) for i in range(0, len(mu_s_list), 6)]
+    lambda_c_list = [sum(lambda_c_list[i:i + 6]) for i in range(0, len(lambda_c_list), 6)]
+    mu_c_list = [sum(mu_c_list[i:i + 6]) for i in range(0, len(mu_c_list), 6)]
+    plt.plot(x_list, lambda_s_list, label='lambda_s')
+    plt.plot(x_list, [lambda_s_list[i] + lambda_c_list[i] for i in range(len(lambda_s_list))], label='lambda_total')
+    plt.plot(x_list, mu_s_list, label='mu_s')
+    plt.plot(x_list, [mu_s_list[i] + mu_c_list[i] for i in range(len(mu_s_list))], label='mu_total')
+    plt.legend()
+    plt.title(f'Station 1-25')
+    plt.show()

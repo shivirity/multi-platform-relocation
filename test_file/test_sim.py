@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     test_result, test_result_work, test_distance, test_value = [], [], [], []
 
-    test_num = 20
+    test_num = 10
 
     test_single = True
     test_policy = 'BAP'

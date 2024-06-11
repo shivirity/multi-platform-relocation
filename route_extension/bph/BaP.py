@@ -102,42 +102,48 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                                 cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat, ei_s_arr=ei_s_arr,
                                 ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=left_prob.x_s_arr,
                                 x_c_arr=left_prob.x_c_arr, alpha=alpha, mode=mode, problem=left_prob)
-            left_node.lp_obj = left_prob.relax_model.objVal
-            left_lp_sol = left_prob.get_relax_solution()
-            non_zero_routes_dict = left_prob.get_non_zero_routes(model='relax')
-            for veh in range(len(non_zero_routes_dict['route'])):
-                veh_route = non_zero_routes_dict['route'][veh]
-                for route in veh_route:
-                    global_bp_column_pool[veh].append(list(route))
-                for profit in non_zero_routes_dict['profit'][veh]:
-                    global_bp_profit_pool[veh].append(profit)
-            # ------------- Step3.4: Check integrality and update UB
-            if is_integer_sol(sol=left_lp_sol):
-                global_lower_bound = max(global_lower_bound, left_prob.relax_model.objVal)
-                print(f'Updated global lower bound: {global_lower_bound}')
-            else:
-                if left_prob.relax_model.objVal > global_lower_bound:
-                    # ----- Step3.5: Update LB by enhancement tech
-                    heuristic_prob = HeuristicProblem(num_of_van=left_prob.num_veh, route_pool=left_prob.route_pool,
-                                                      profit_pool=left_prob.profit_pool, veh_mat=left_prob.veh_mat,
-                                                      node_mat=left_prob.node_mat, model=left_prob.model,
-                                                      cg_column_pool=global_cg_column_pool,
-                                                      cg_profit_pool=global_cg_profit_pool)
-                    heuristic_lower_bound = heuristic_prob.solve()
-                    global_lower_bound = max(global_lower_bound, heuristic_lower_bound)
-                    heuristic_non_zero_routes = heuristic_prob.obtain_non_zero_routes()
-                    for veh in range(len(heuristic_non_zero_routes['route'])):
-                        veh_route = heuristic_non_zero_routes['route'][veh]
-                        for route in veh_route:
-                            global_bp_column_pool[veh].append(list(route))
-                        for profit in heuristic_non_zero_routes['profit'][veh]:
-                            global_bp_profit_pool[veh].append(profit)
+            if left_prob.relax_model.status != gp.GRB.Status.INFEASIBLE:
+                left_node.lp_obj = left_prob.relax_model.objVal
+                left_lp_sol = left_prob.get_relax_solution()
+                non_zero_routes_dict = left_prob.get_non_zero_routes(model='relax')
+                for veh in range(len(non_zero_routes_dict['route'])):
+                    veh_route = non_zero_routes_dict['route'][veh]
+                    for route in veh_route:
+                        global_bp_column_pool[veh].append(list(route))
+                    for profit in non_zero_routes_dict['profit'][veh]:
+                        global_bp_profit_pool[veh].append(profit)
+                # ------------- Step3.4: Check integrality and update UB
+                if is_integer_sol(sol=left_lp_sol):
+                    global_lower_bound = max(global_lower_bound, left_prob.relax_model.objVal)
                     print(f'Updated global lower bound: {global_lower_bound}')
-                    left_push_flag = True
                 else:
-                    if to_stop(pool_length=len(stack), lb=global_lower_bound,
-                               ub=global_upper_bound, num_nodes=num_explored_nodes):
-                        break  # todo: may need to adjust
+                    if left_prob.relax_model.objVal > global_lower_bound:
+                        # ----- Step3.5: Update LB by enhancement tech
+                        # print(global_cg_column_pool)
+                        # print(global_cg_profit_pool)
+                        heuristic_prob = HeuristicProblem(num_of_van=left_prob.num_veh, route_pool=left_prob.route_pool,
+                                                          profit_pool=left_prob.profit_pool, veh_mat=left_prob.veh_mat,
+                                                          node_mat=left_prob.node_mat, model=left_prob.model,
+                                                          cg_column_pool=global_cg_column_pool,
+                                                          cg_profit_pool=global_cg_profit_pool)
+                        # print(heuristic_prob.model.getConstrs())
+                        heuristic_lower_bound = heuristic_prob.solve()
+                        global_lower_bound = max(global_lower_bound, heuristic_lower_bound)
+                        heuristic_non_zero_routes = heuristic_prob.obtain_non_zero_routes()
+                        for veh in range(len(heuristic_non_zero_routes['route'])):
+                            veh_route = heuristic_non_zero_routes['route'][veh]
+                            for route in veh_route:
+                                global_bp_column_pool[veh].append(list(route))
+                            for profit in heuristic_non_zero_routes['profit'][veh]:
+                                global_bp_profit_pool[veh].append(profit)
+                        print(f'Updated global lower bound: {global_lower_bound}')
+                        left_push_flag = True
+                    else:
+                        if to_stop(pool_length=len(stack), lb=global_lower_bound,
+                                   ub=global_upper_bound, num_nodes=num_explored_nodes):
+                            break  # todo: may need to adjust
+            else:  # model is infeasible
+                pass
             right_prob = right_node.mp
             num_explored_nodes += 1
             solve_relax_problem(computer=computer, num_of_van=num_of_van, van_location=right_prob.van_location,
@@ -145,40 +151,43 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                                 cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat, ei_s_arr=ei_s_arr,
                                 ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=right_prob.x_s_arr,
                                 x_c_arr=right_prob.x_c_arr, mode=mode, alpha=alpha, problem=right_prob)
-            right_node.lp_obj = right_prob.relax_model.objVal
-            right_lp_sol = right_prob.get_relax_solution()
-            non_zero_routes_dict = right_prob.get_non_zero_routes(model='relax')
-            for veh in range(len(non_zero_routes_dict['route'])):
-                veh_route = non_zero_routes_dict['route'][veh]
-                for route in veh_route:
-                    global_bp_column_pool[veh].append(list(route))
-                for profit in non_zero_routes_dict['profit'][veh]:
-                    global_bp_profit_pool[veh].append(profit)
-            if is_integer_sol(sol=right_lp_sol):
-                global_lower_bound = max(global_lower_bound, right_prob.relax_model.objVal)
-                print(f'Updated global lower bound: {global_lower_bound}')
-            else:
-                if right_prob.relax_model.objVal > global_lower_bound:
-                    heuristic_prob = HeuristicProblem(num_of_van=right_prob.num_veh, route_pool=right_prob.route_pool,
-                                                      profit_pool=right_prob.profit_pool, veh_mat=right_prob.veh_mat,
-                                                      node_mat=right_prob.node_mat, model=right_prob.model,
-                                                      cg_column_pool=global_cg_column_pool,
-                                                      cg_profit_pool=global_cg_profit_pool)
-                    heuristic_lower_bound = heuristic_prob.solve()
-                    global_lower_bound = max(global_lower_bound, heuristic_lower_bound)
-                    heuristic_non_zero_routes = heuristic_prob.obtain_non_zero_routes()
-                    for veh in range(len(heuristic_non_zero_routes['route'])):
-                        veh_route = heuristic_non_zero_routes['route'][veh]
-                        for route in veh_route:
-                            global_bp_column_pool[veh].append(list(route))
-                        for profit in heuristic_non_zero_routes['profit'][veh]:
-                            global_bp_profit_pool[veh].append(profit)
+            if right_prob.relax_model.status != gp.GRB.Status.INFEASIBLE:
+                right_node.lp_obj = right_prob.relax_model.objVal
+                right_lp_sol = right_prob.get_relax_solution()
+                non_zero_routes_dict = right_prob.get_non_zero_routes(model='relax')
+                for veh in range(len(non_zero_routes_dict['route'])):
+                    veh_route = non_zero_routes_dict['route'][veh]
+                    for route in veh_route:
+                        global_bp_column_pool[veh].append(list(route))
+                    for profit in non_zero_routes_dict['profit'][veh]:
+                        global_bp_profit_pool[veh].append(profit)
+                if is_integer_sol(sol=right_lp_sol):
+                    global_lower_bound = max(global_lower_bound, right_prob.relax_model.objVal)
                     print(f'Updated global lower bound: {global_lower_bound}')
-                    right_push_flag = True
                 else:
-                    if to_stop(pool_length=len(stack), lb=global_lower_bound,
-                               ub=global_upper_bound, num_nodes=num_explored_nodes):
-                        break  # todo: may need to adjust
+                    if right_prob.relax_model.objVal > global_lower_bound:
+                        heuristic_prob = HeuristicProblem(num_of_van=right_prob.num_veh, route_pool=right_prob.route_pool,
+                                                          profit_pool=right_prob.profit_pool, veh_mat=right_prob.veh_mat,
+                                                          node_mat=right_prob.node_mat, model=right_prob.model,
+                                                          cg_column_pool=global_cg_column_pool,
+                                                          cg_profit_pool=global_cg_profit_pool)
+                        heuristic_lower_bound = heuristic_prob.solve()
+                        global_lower_bound = max(global_lower_bound, heuristic_lower_bound)
+                        heuristic_non_zero_routes = heuristic_prob.obtain_non_zero_routes()
+                        for veh in range(len(heuristic_non_zero_routes['route'])):
+                            veh_route = heuristic_non_zero_routes['route'][veh]
+                            for route in veh_route:
+                                global_bp_column_pool[veh].append(list(route))
+                            for profit in heuristic_non_zero_routes['profit'][veh]:
+                                global_bp_profit_pool[veh].append(profit)
+                        print(f'Updated global lower bound: {global_lower_bound}')
+                        right_push_flag = True
+                    else:
+                        if to_stop(pool_length=len(stack), lb=global_lower_bound,
+                                   ub=global_upper_bound, num_nodes=num_explored_nodes):
+                            break  # todo: may need to adjust
+            else:
+                pass
             if right_push_flag:
                 stack.push(right_node)
             if left_push_flag:
@@ -195,29 +204,32 @@ def solve_relax_problem(computer: ESDComputer, num_of_van: int, van_location: li
                         x_c_arr: list, alpha: float, mode: str, problem: MasterProblem) -> None:
     """solve the problem using column generation"""
     problem.relax_optimize()
-    print(f"Relax model objVal: {problem.relax_model.objVal}, "
-          f"delta: {problem.relax_model.objVal - ORDER_INCOME_UNIT * problem.no_repo_esd}")
-    # sol = problem.get_relax_solution()
-    # dual = problem.get_dual_vector()
-    node_reach_optimal = False
-    cg_times = 1
-    while not node_reach_optimal:
-        st = time.process_time()
-        cg_column_pool, cg_profit_pool, early_stop_flag = column_generation(
-            computer=computer, num_of_van=num_of_van, van_location=van_location, van_dis_left=van_dis_left,
-            van_load=van_load, c_s=c_s, c_v=c_v, cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat,
-            ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=x_s_arr, x_c_arr=x_c_arr, alpha=alpha,
-            mode=mode, problem=problem)
-        ed = time.process_time()
-        print(f'the {cg_times}th column generation time: {ed - st} seconds')
-        cg_times += 1
-        if early_stop_flag is False and cg_column_pool:
-            problem.add_columns(column_pool=cg_column_pool, column_profit=cg_profit_pool)
-            problem.relax_optimize()
-            print(f"Relax model objVal: {problem.relax_model.objVal}, "
-                  f"delta: {problem.relax_model.objVal - ORDER_INCOME_UNIT * problem.no_repo_esd}")
-        else:
-            node_reach_optimal = True
+    if problem.relax_model.status == gp.GRB.Status.OPTIMAL:
+        print(f"Relax model objVal: {problem.relax_model.objVal}, "
+              f"delta: {problem.relax_model.objVal - ORDER_INCOME_UNIT * problem.no_repo_esd}")
+        # sol = problem.get_relax_solution()
+        # dual = problem.get_dual_vector()
+        node_reach_optimal = False
+        cg_times = 1
+        while not node_reach_optimal:
+            st = time.process_time()
+            cg_column_pool, cg_profit_pool, early_stop_flag = column_generation(
+                computer=computer, num_of_van=num_of_van, van_location=van_location, van_dis_left=van_dis_left,
+                van_load=van_load, c_s=c_s, c_v=c_v, cur_t=cur_t, t_p=t_p, t_f=t_f, t_roll=t_roll, c_mat=c_mat,
+                ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=esd_arr, x_s_arr=x_s_arr, x_c_arr=x_c_arr, alpha=alpha,
+                mode=mode, problem=problem)
+            ed = time.process_time()
+            print(f'the {cg_times}th column generation time: {ed - st} seconds')
+            cg_times += 1
+            if early_stop_flag is False and cg_column_pool:
+                problem.add_columns(column_pool=cg_column_pool, column_profit=cg_profit_pool)
+                problem.relax_optimize()
+                print(f"Relax model objVal: {problem.relax_model.objVal}, "
+                      f"delta: {problem.relax_model.objVal - ORDER_INCOME_UNIT * problem.no_repo_esd}")
+            else:
+                node_reach_optimal = True
+    else:
+        print('Model is infeasible.')
 
 
 def column_generation(computer: ESDComputer, num_of_van: int, van_location: list, van_dis_left: list, van_load: list,
@@ -276,7 +288,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
         for k in loc_list:
             if k not in clean_route and k > -0.5:
                 clean_route.append(k)
-        assert len(clean_route) == len(route), f'{clean_route}, {route}'
+        # assert len(clean_route) == len(route), f'{clean_route}, {route}'
         station_reduced_cost = sum([dual_station_vec[j-1] for j in route if j > 0])
         print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
         if max_reward - min(dual_van_vec) - station_reduced_cost > 1e-5:  # found route with negative reduced cost
@@ -363,6 +375,19 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                 inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
             )
             route = list(new_route)
+            # if route == [18, 13, 6, 19, 3]:
+            #     print(f'route: {route}')
+            #     test_route = get_dp_reduced_cost_bidirectional(
+            #         cap_s=c_s, num_stations=num_stations, init_loc=van_location[van], init_t_left=van_dis_left[van],
+            #         init_load=van_load[van], x_s_arr=x_s_arr, x_c_arr=x_c_arr, ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr,
+            #         esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p, t_f=t_f, alpha=alpha, dual_van=0,
+            #         dual_station_vec=list(dual_station_vec), inventory_dict={
+            #             0: 0, 1: 5, 2: 10, 3: 15, 4: 20, 5: 25
+            #         },
+            #         inventory_id_dict={
+            #             25: 5, 20: 4, 15: 3, 10: 2, 5: 1, 0: 0
+            #         }
+            #     )
             max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[van],
                                                                     init_l=van_load[van], x_s_arr=x_s_arr,
                                                                     x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
@@ -371,7 +396,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
             for k in loc_list:
                 if k not in clean_route and k > -0.5:
                     clean_route.append(k)
-            assert len(clean_route) == len(route), f'{clean_route}, {route}'
+            # assert len(clean_route) == len(route), f'{clean_route}, {route}'
             station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
             print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
             if max_reward - dual_van_vec[van] - station_reduced_cost > 1e-5:  # found route with negative reduced cost

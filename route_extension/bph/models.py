@@ -349,6 +349,13 @@ class HeuristicProblem:
                 self.model.addVar(obj=van_profit[i], vtype=gp.GRB.BINARY, name=f'x{len(self.profit_pool)-1}', column=col)
         self.model.update()
 
+        # delete new constraints
+        for con in self.model.getConstrs():
+            if 'veh_num' in con.ConstrName:
+                self.model.remove(con)
+            elif 'node_visit' in con.ConstrName:
+                self.model.remove(con)
+
         self.veh_mat = np.hstack((self.veh_mat, ex_veh_mat))
         self.node_mat = np.hstack((self.node_mat, ex_node_mat))
 
