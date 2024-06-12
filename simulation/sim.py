@@ -16,7 +16,7 @@ import sys
 # from alns import get_relocation_routes
 from route_extension.route_extension_algo import get_REA_routes_test
 from route_extension.cg_re_algo import (get_CG_REA_routes, get_DP_routes_greedy, get_exact_cost,
-                                        get_routes_gurobi_single, get_routes_gurobi_single_zhang)
+                                        get_routes_gurobi_single, get_routes_gurobi_single_zhang, evaluate_routes)
 from route_extension.bph.BaP_algo import get_routes_branch_and_price
 
 random.seed(SEED)
@@ -118,11 +118,14 @@ class Simulation:
         self.ei_s_arr = kwargs['ei_s_arr'] if 'ei_s_arr' in kwargs.keys() else None
         self.ei_c_arr = kwargs['ei_c_arr'] if 'ei_c_arr' in kwargs.keys() else None
         self.esd_arr = kwargs['esd_arr'] if 'esd_arr' in kwargs.keys() else None
+        self.single_ei_s_arr = None
+        self.single_esd_arr = None
         self.last_dec_t = None
         self.future_dec_dict = None
 
         # for comparison between BaP and Gurobi
         self.use_gurobi = False
+        self.use_single = False
 
         # MLP test
         # self.nn_var_list = ['time', 'veh_load', 'des_inv']
@@ -655,7 +658,51 @@ class Simulation:
                             t_roll=round(T_ROLL / MIN_RUN_STEP),
                             alpha=ALPHA,
                         )
-
+                    if self.use_single:
+                        print('evaluating solution in single mode')
+                        single_dec_dict = get_routes_branch_and_price(
+                            num_of_van=self.num_of_veh,
+                            van_location=[0 for _ in range(self.num_of_veh)],
+                            van_dis_left=[0 for _ in range(self.num_of_veh)],
+                            van_load=[0 for _ in range(self.num_of_veh)],
+                            c_s=CAP_S,
+                            c_v=VEH_CAP,
+                            cur_t=round(self.t / MIN_RUN_STEP),
+                            t_p=round(T_PLAN / MIN_RUN_STEP),
+                            t_f=round(T_FORE / MIN_RUN_STEP),
+                            t_roll=round(T_ROLL / MIN_RUN_STEP),
+                            c_mat=self.get_MINLP_dist_mat(),
+                            ei_s_arr=self.single_ei_s_arr,
+                            ei_c_arr=self.ei_c_arr,
+                            esd_arr=self.single_esd_arr,
+                            x_s_arr=[val.num_self for val in self.stations.values()],
+                            x_c_arr=[val.num_opponent for val in self.stations.values()],
+                            alpha=ALPHA,
+                            est_ins=[0 for _ in range(self.num_of_veh)],
+                            mode='single'
+                        )
+                        origin_val, single_profit = evaluate_routes(
+                            routes=single_dec_dict['loc'],
+                            instructions=single_dec_dict['n_r'],
+                            num_of_van=self.num_of_veh,
+                            van_location=[0 for _ in range(self.num_of_veh)],
+                            van_dis_left=[0 for _ in range(self.num_of_veh)],
+                            van_load=[0 for _ in range(self.num_of_veh)],
+                            c_s=CAP_S,
+                            c_v=VEH_CAP,
+                            cur_t=round(self.t / MIN_RUN_STEP),
+                            t_p=round(T_PLAN / MIN_RUN_STEP),
+                            t_f=round(T_FORE / MIN_RUN_STEP),
+                            t_roll=round(T_ROLL / MIN_RUN_STEP),
+                            c_mat=self.get_MINLP_dist_mat(),
+                            ei_s_arr=self.ei_s_arr,
+                            ei_c_arr=self.ei_c_arr,
+                            esd_arr=self.esd_arr,
+                            x_s_arr=[val.num_self for val in self.stations.values()],
+                            x_c_arr=[val.num_opponent for val in self.stations.values()],
+                            alpha=ALPHA
+                        )
+                        print(f'origin_val: {origin_val}, single_profit: {single_profit}')
                     # import pickle
                     # with open('test_van_location.pkl', 'rb') as f:
                     #     test_van_location = pickle.load(f)
@@ -828,6 +875,50 @@ class Simulation:
                                 t_roll=round(T_ROLL / MIN_RUN_STEP),
                                 alpha=ALPHA,
                             )
+                        if self.use_single:
+                            single_dec_dict = get_routes_branch_and_price(
+                                num_of_van=self.num_of_veh,
+                                van_location=[self.veh_info[veh][1] for veh in range(self.num_of_veh)],
+                                van_dis_left=[round(self.veh_info[veh][2]/MIN_RUN_STEP) for veh in range(self.num_of_veh)],
+                                van_load=[self.veh_info[veh][3] for veh in range(self.num_of_veh)],
+                                c_s=CAP_S,
+                                c_v=VEH_CAP,
+                                cur_t=round(self.t / MIN_RUN_STEP),
+                                t_p=round(T_PLAN / MIN_RUN_STEP),
+                                t_f=round(T_FORE / MIN_RUN_STEP),
+                                t_roll=round(T_ROLL / MIN_RUN_STEP),
+                                c_mat=self.get_MINLP_dist_mat(),
+                                ei_s_arr=self.single_ei_s_arr,
+                                ei_c_arr=self.ei_c_arr,
+                                esd_arr=self.single_esd_arr,
+                                x_s_arr=[val.num_self for val in self.stations.values()],
+                                x_c_arr=[val.num_opponent for val in self.stations.values()],
+                                alpha=ALPHA,
+                                est_ins=scheduled_ins,
+                                mode='single'
+                            )
+                            origin_val, single_profit = evaluate_routes(
+                                routes=single_dec_dict['loc'],
+                                instructions=single_dec_dict['n_r'],
+                                num_of_van=self.num_of_veh,
+                                van_location=[self.veh_info[veh][1] for veh in range(self.num_of_veh)],
+                                van_dis_left=[round(self.veh_info[veh][2]/MIN_RUN_STEP) for veh in range(self.num_of_veh)],
+                                van_load=[self.veh_info[veh][3] for veh in range(self.num_of_veh)],
+                                c_s=CAP_S,
+                                c_v=VEH_CAP,
+                                cur_t=round(self.t / MIN_RUN_STEP),
+                                t_p=round(T_PLAN / MIN_RUN_STEP),
+                                t_f=round(T_FORE / MIN_RUN_STEP),
+                                t_roll=round(T_ROLL / MIN_RUN_STEP),
+                                c_mat=self.get_MINLP_dist_mat(),
+                                ei_s_arr=self.ei_s_arr,
+                                ei_c_arr=self.ei_c_arr,
+                                esd_arr=self.esd_arr,
+                                x_s_arr=[val.num_self for val in self.stations.values()],
+                                x_c_arr=[val.num_opponent for val in self.stations.values()],
+                                alpha=ALPHA
+                            )
+                            print(f'origin_val: {origin_val}, single_profit: {single_profit}')
                     else:
                         assert False, f'to fill mode: exact_test'
                     print(self.future_dec_dict)

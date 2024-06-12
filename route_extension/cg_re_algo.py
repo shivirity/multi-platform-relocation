@@ -5377,6 +5377,70 @@ def get_routes_gurobi_single_zhang(cap_v: int, cap_s: int, num_stations: int, t_
                             # print(f'cur_s={cur_s}, cur_t={cur_t}')
 
 
+def evaluate_routes(routes: list, instructions: list, num_of_van: int, van_location: list, van_dis_left: list,
+                    van_load: list, c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll: int, c_mat: np.ndarray,
+                    ei_s_arr: np.ndarray, ei_c_arr: np.ndarray, esd_arr: np.ndarray, x_s_arr: list, x_c_arr: list,
+                    alpha: float) -> tuple:
+    com = ESDComputer(esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
+    cur_t = round(cur_t - RE_START_T / 10)
+    station_esd_list = [
+        com.compute_ESD_in_horizon(
+            station_id=i,
+            t_arr=0,
+            ins=0,
+            x_s_arr=x_s_arr,
+            x_c_arr=x_c_arr,
+            mode='multi',
+            delta=True,
+            repo=False
+        ) for i in range(1, c_mat.shape[0])
+    ]
+    routes_profit = 0
+    # return
+    for veh in range(num_of_van):
+        route, ins = routes[veh], instructions[veh]
+        step_t = van_dis_left[veh]
+        last_loc = van_location[veh]
+        cur_load = van_load[veh]
+        while step_t < len(route):
+            if route[step_t] is None or route[step_t] == 0:  # empty or at depot
+                step_t += 1
+            else:  # at stations
+                visit_s = route[step_t]
+                ins_s = ins[step_t]
+                if ins_s > 0:  # to unload
+                    unload = min(cur_load, ins_s, c_s - round(ei_s_arr[
+                        visit_s - 1, cur_t, cur_t + step_t, x_s_arr[visit_s - 1], x_c_arr[visit_s - 1]]))  # > 0
+                    cur_load -= unload
+                    routes_profit += ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(station_id=visit_s, t_arr=step_t,
+                                                                                    ins=unload, x_s_arr=x_s_arr,
+                                                                                    x_c_arr=x_c_arr, mode='multi',
+                                                                                    delta=True)
+                elif ins_s == 0:  # do nothing
+                    routes_profit += ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(station_id=visit_s, t_arr=step_t,
+                                                                                    ins=0, x_s_arr=x_s_arr,
+                                                                                    x_c_arr=x_c_arr, mode='multi',
+                                                                                    delta=True)
+                elif -99 < ins_s < 0:  # load
+                    load = min(c_v - cur_load, -ins_s, round(ei_s_arr[
+                        visit_s - 1, cur_t, cur_t + step_t, x_s_arr[visit_s - 1], x_c_arr[visit_s - 1]]))  # > 0
+                    cur_load += load
+                    routes_profit += ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(station_id=visit_s, t_arr=step_t,
+                                                                                    ins=-load, x_s_arr=x_s_arr,
+                                                                                    x_c_arr=x_c_arr, mode='multi',
+                                                                                    delta=True)
+                else:
+                    assert ins_s == -100
+
+                if visit_s != last_loc:
+                    routes_profit -= alpha * c_mat[last_loc, visit_s]
+                    last_loc = visit_s
+
+                step_t += 1
+
+    return ORDER_INCOME_UNIT * sum(station_esd_list), routes_profit
+
+
 def get_CG_REA_routes(num_of_van: int, van_location: list, van_dis_left: list, van_load: list, c_s: int, c_v: int,
                       cur_t: int, t_p: int, t_f: int, t_roll: int, c_mat: np.ndarray, ei_s_arr: np.ndarray,
                       ei_c_arr: np.ndarray, esd_arr: np.ndarray, x_s_arr: list, x_c_arr: list, alpha: float,

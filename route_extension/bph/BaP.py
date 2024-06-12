@@ -62,8 +62,8 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
     root_ed = time.process_time()
     print(f"Root node running time: {root_ed - root_st} seconds")
     root_relax_sol = master_prob.get_relax_solution()
-    print('relax_route_vars: ', root_relax_sol)
-    print('relax_station_vars: ', master_prob.get_relax_station_vars())
+    # print('relax_route_vars: ', root_relax_sol)
+    # print('relax_station_vars: ', master_prob.get_relax_station_vars())
     if is_integer_sol(sol=root_relax_sol):
         return master_prob
     else:
@@ -83,8 +83,8 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                 global_cg_column_pool[veh].append(list(route))
             for profit in non_zero_routes_dict['profit'][veh]:
                 global_cg_profit_pool[veh].append(profit)
-        print(f'global_cg_column_pool: ', global_cg_column_pool)
-        print(f'global_cg_profit_pool: ', global_cg_profit_pool)
+        # print(f'global_cg_column_pool: ', global_cg_column_pool)
+        # print(f'global_cg_profit_pool: ', global_cg_profit_pool)
         # ----------------- Step4: Branch and price
         while not to_stop(pool_length=len(stack), lb=global_lower_bound,
                           ub=global_upper_bound, num_nodes=num_explored_nodes):
@@ -290,7 +290,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                 clean_route.append(k)
         # assert len(clean_route) == len(route), f'{clean_route}, {route}'
         station_reduced_cost = sum([dual_station_vec[j-1] for j in route if j > 0])
-        print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
+        # print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
         if max_reward - min(dual_van_vec) - station_reduced_cost > 1e-5:  # found route with negative reduced cost
             route_pool, profit_pool = [[] for _ in range(num_of_van)], [[] for _ in range(num_of_van)]
             for van in range(num_of_van):
@@ -328,7 +328,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                     clean_route.append(k)
             assert len(clean_route) == len(route), f'{clean_route}, {route}'
             station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
-            print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
+            # print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
             if max_reward - min(dual_van_vec) - station_reduced_cost < lp_obj * CG_STOP_EPSILON / num_of_van:
                 early_stop_flag = True
                 return None, None, early_stop_flag
@@ -398,7 +398,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                     clean_route.append(k)
             # assert len(clean_route) == len(route), f'{clean_route}, {route}'
             station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
-            print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
+            # print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
             if max_reward - dual_van_vec[van] - station_reduced_cost > 1e-5:  # found route with negative reduced cost
                 route_pool[van].append(route)
                 profit_pool[van].append(max_reward)
@@ -438,7 +438,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                         clean_route.append(k)
                 assert len(clean_route) == len(route), f'{clean_route}, {route}'
                 station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
-                print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
+                # print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
                 if max_reward - dual_van_vec[van] - station_reduced_cost < lp_obj * CG_STOP_EPSILON / num_of_van:
                     early_stop_flag[van] = True
                 if max_reward - dual_van_vec[van] - station_reduced_cost > 1e-5:

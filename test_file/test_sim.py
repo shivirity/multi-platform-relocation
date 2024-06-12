@@ -55,9 +55,10 @@ if __name__ == '__main__':
 
     test_num = 10
 
-    test_single = True
-    test_policy = 'BAP'
+    test_single = False
+    test_policy = 'DP_test'
     test_use_gurobi = False
+    test_use_single = True
 
     # MINLP model
     if test_single is True:
@@ -74,6 +75,10 @@ if __name__ == '__main__':
             ei_c_arr = pickle.load(f)
         with open('../expectation_calculation/ESD_array_multi.pkl', 'rb') as f:
             esd_arr = pickle.load(f)
+        with open('../expectation_calculation/EI_s_array_single.pkl', 'rb') as f:
+            single_ei_s_arr = pickle.load(f)
+        with open('../expectation_calculation/ESD_array_single.pkl', 'rb') as f:
+            single_esd_arr = pickle.load(f)
 
     start = time.process_time()
     for _ in range(test_num):
@@ -82,6 +87,10 @@ if __name__ == '__main__':
         test.single = test_single
         test.policy = test_policy
         test.use_gurobi = test_use_gurobi
+        test.use_single = test_use_single
+        if test_use_single:
+            test.single_ei_s_arr = single_ei_s_arr
+            test.single_esd_arr = single_esd_arr
         test.print_action = True
         test.run()
         # print(f'test_esd: {test.test_esd}')

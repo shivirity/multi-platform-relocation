@@ -18,7 +18,7 @@ def get_routes_branch_and_price(num_of_van: int, van_location: list, van_dis_lef
     esd_computer = ESDComputer(
         esd_arr=esd_arr, ei_s_arr=ei_s_arr, ei_c_arr=ei_c_arr, t_cur=cur_t, t_fore=t_f, c_mat=c_mat)
     station_esd_list = [
-        ORDER_INCOME_UNIT * esd_computer.compute_ESD_in_horizon(
+        esd_computer.compute_ESD_in_horizon(
             station_id=i,
             t_arr=0,
             ins=0,
