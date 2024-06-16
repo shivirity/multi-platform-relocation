@@ -73,9 +73,12 @@ class MasterProblem:
         self.model_node_cons = None
         self.model_node_visit_cons = None  # disorder, be a dict
         self.model_veh_num_cons = None  # disorder, be a list
+        self.model_arc_visit_cons = None  # disorder, be a dict
 
         self.must_visit_station = []
         self.must_not_visit_station = []
+        self.must_visit_arc = []
+        self.must_not_visit_arc = []
 
     def __deepcopy__(self, memodict={}):
         new_mp = MasterProblem(num_veh=self.num_veh, num_stations=self.num_stations,
@@ -91,11 +94,14 @@ class MasterProblem:
         new_mp.relax_model = self.relax_model.copy() if self.relax_model is not None else None
         new_mp.must_visit_station = list(self.must_visit_station)
         new_mp.must_not_visit_station = list(self.must_not_visit_station)
+        new_mp.must_visit_arc = list(self.must_visit_arc)
+        new_mp.must_not_visit_arc = list(self.must_not_visit_arc)
 
         new_mp.model_x = {}
         new_mp.model_veh_cons = {}
         new_mp.model_node_cons = {}
         new_mp.model_node_visit_cons = {}
+        new_mp.model_arc_visit_cons = {}
         for var_idx in self.model_x.keys():
             var_name = self.model_x[var_idx].VarName
             new_mp.model_x[var_idx] = new_mp.model.getVarByName(var_name)
@@ -109,6 +115,10 @@ class MasterProblem:
             for node_idx in self.model_node_visit_cons.keys():
                 node_con_name = self.model_node_visit_cons[node_idx].ConstrName
                 new_mp.model_node_visit_cons[node_idx] = new_mp.model.getConstrByName(node_con_name)
+        if self.model_arc_visit_cons is not None:
+            for arc in self.model_arc_visit_cons.keys():
+                arc_con_name = self.model_arc_visit_cons[arc].ConstrName
+                new_mp.model_arc_visit_cons[arc] = new_mp.model.getConstrByName(arc_con_name)
         if self.model_veh_num_cons is not None:
             new_mp.model_veh_num_cons = []
             for cons in self.model_veh_num_cons:
@@ -116,6 +126,11 @@ class MasterProblem:
                 new_mp.model_veh_num_cons.append(new_mp.model.getConstrByName(cons_name))
 
         return new_mp
+
+    @staticmethod
+    def is_arc_in_route(arc: tuple, route: list) -> bool:
+        """check if the arc is in the route"""
+        return arc in [(route[i], route[i + 1]) for i in range(len(route) - 1)]
 
     def build_model(self):
         """build initial model for MP"""
@@ -185,6 +200,31 @@ class MasterProblem:
                 name=f'veh_num_{threshold}_{greater}'))
             self.model.update()
 
+    def add_arc_visit_constr(self, arc: tuple, visit: int):
+        """add arc visit constraint to the model"""
+        if visit == 1:
+            if self.model_arc_visit_cons is None:
+                self.model_arc_visit_cons = {}
+            assert arc not in self.model_arc_visit_cons.keys(), f'arc {arc} already exists in the model'
+            route_contain_list = [1 if self.is_arc_in_route(arc=arc, route=route) else 0 for route in self.route_pool]
+            self.model_arc_visit_cons[arc] = self.model.addConstr(
+                gp.quicksum(route_contain_list[k] * self.model_x[k] for k in range(len(self.model_x))) >= 1,
+                name=f'arc_visit_true_{arc}'
+            )
+            self.model.update()
+        elif visit == 0:
+            if self.model_arc_visit_cons is None:
+                self.model_arc_visit_cons = {}
+            assert arc not in self.model_arc_visit_cons.keys(), f'arc {arc} already exists in the model'
+            route_contain_list = [1 if self.is_arc_in_route(arc=arc, route=route) else 0 for route in self.route_pool]
+            self.model_arc_visit_cons[arc] = self.model.addConstr(
+                gp.quicksum(route_contain_list[k] * self.model_x[k] for k in range(len(self.model_x))) <= 0,
+                name=f'arc_visit_false_{arc}'
+            )
+            self.model.update()
+        else:
+            assert False, f'visit value {visit} is not valid. It should be 0 or 1.'
+
     def add_columns(self, column_pool: list, column_profit: list):
         """add latest generated columns to the model"""
         ex_veh_mat, ex_node_mat = None, None
@@ -216,6 +256,12 @@ class MasterProblem:
                 if self.model_veh_num_cons is not None:
                     for con in self.model_veh_num_cons:
                         col.addTerms(1, con)
+                if self.model_arc_visit_cons is not None:
+                    for arc in self.model_arc_visit_cons.keys():
+                        if self.is_arc_in_route(arc=arc, route=van_column[i]):
+                            col.addTerms(1, self.model_arc_visit_cons[arc])
+                        else:
+                            col.addTerms(0, self.model_arc_visit_cons[arc])
                 self.model_x[len(self.route_pool)-1] = \
                     self.model.addVar(obj=van_profit[i], vtype=gp.GRB.BINARY, name=f'x{len(self.profit_pool)-1}',
                                       column=col)
@@ -246,6 +292,7 @@ class MasterProblem:
         veh_con_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in veh_con_names]
         node_con_names = [con.ConstrName for con in self.model_node_cons.values()]
         node_con_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in node_con_names]
+
         if self.model_veh_num_cons is not None:
             veh_num_con_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in
                                  [con.ConstrName for con in self.model_veh_num_cons]]
@@ -260,6 +307,7 @@ class MasterProblem:
         else:
             veh_num_con_duals = []
             veh_num_con_labels = []
+
         if self.model_node_visit_cons is not None:
             visit_con_keys = list(self.model_node_visit_cons.keys())
             visit_con_names = [con.ConstrName for con in self.model_node_visit_cons.values()]
@@ -267,8 +315,20 @@ class MasterProblem:
         else:
             visit_con_duals = []
             visit_con_keys = []
-        dual_vector = veh_con_duals + node_con_duals + veh_num_con_duals + visit_con_duals
-        return dual_vector, veh_num_con_labels, visit_con_keys
+
+        if self.model_arc_visit_cons is not None:
+            arc_keys = list(self.model_arc_visit_cons.keys())
+            visit_con_names = [con.ConstrName for con in self.model_arc_visit_cons.values()]
+            arc_bools = ['true' in con_name for con_name in visit_con_names]
+            arc_duals = [self.relax_model.getConstrByName(con_name).Pi for con_name in visit_con_names]
+        else:
+            arc_keys = []
+            arc_bools = []
+            arc_duals = []
+
+        dual_vector = veh_con_duals + node_con_duals + veh_num_con_duals + visit_con_duals + arc_duals
+
+        return dual_vector, veh_num_con_labels, visit_con_keys, arc_keys, arc_bools
 
     def get_relax_veh_vars(self):
         relax_sol = self.get_relax_solution()
@@ -354,6 +414,8 @@ class HeuristicProblem:
             if 'veh_num' in con.ConstrName:
                 self.model.remove(con)
             elif 'node_visit' in con.ConstrName:
+                self.model.remove(con)
+            elif 'arc_visit' in con.ConstrName:
                 self.model.remove(con)
 
         self.veh_mat = np.hstack((self.veh_mat, ex_veh_mat))

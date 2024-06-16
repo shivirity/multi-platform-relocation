@@ -181,7 +181,7 @@ class ESDComputer:
                 return original_val
 
     def compute_route(self, r: list, t_left: int, init_l: int, x_s_arr: list, x_c_arr: list, mode: str,
-                      t_repo: int = 0, can_stay: bool = False, to_print: bool = True):
+                      t_repo: int = 0, can_stay: bool = False, to_print: bool = True, fix_route: bool = False):
         """
         calculate the cost of the route and the instructions using dynamic programming
 
@@ -194,6 +194,7 @@ class ESDComputer:
         :param t_repo: repositioning window length (in 10 min)
         :param can_stay: whether the van can stay at the station
         :param to_print: whether to print the results
+        :param fix_route: whether the route is fixed (to visit all the stations in the route)
         :return:
         """
         cap_van, cap_station = VEH_CAP, CAP_S
@@ -507,12 +508,21 @@ class ESDComputer:
                                                 pass
 
             max_reward_list, max_label_list = [], []
-            for s in range(num_route):
+
+            if not fix_route:
+                for s in range(num_route):
+                    for inv in range(num_level):
+                        # print(t_repo, s, inv)
+                        if reward_arr[t_repo][s][inv] is not None:
+                            max_reward_list.append(reward_arr[t_repo][s][inv])
+                            max_label_list.append((t_repo, s, inv))
+            else:
+                s = num_route - 1
                 for inv in range(num_level):
-                    # print(t_repo, s, inv)
                     if reward_arr[t_repo][s][inv] is not None:
                         max_reward_list.append(reward_arr[t_repo][s][inv])
                         max_label_list.append((t_repo, s, inv))
+
             if max_reward_list:
                 max_reward = max(max_reward_list)
                 max_label = max_label_list[max_reward_list.index(max_reward)]

@@ -660,6 +660,22 @@ class Simulation:
                         )
                     if self.use_single:
                         print('evaluating solution in single mode')
+                        # print(f'self_num: {[val.num_self for val in self.stations.values()]}')
+                        # if [val.num_self for val in self.stations.values()] == \
+                        #     [6, 10, 3, 2, 32, 28, 1, 26, 40, 40, 6, 39, 27, 5, 18, 2, 0, 7, 7, 12, 35, 2, 17, 15, 7]:
+                        #     import pickle
+                        #     # to dump
+                        #     with open('test_x_s_arr.pkl', 'wb') as f:
+                        #         pickle.dump([val.num_self for val in self.stations.values()], f)
+                        #     with open('test_x_c_arr.pkl', 'wb') as f:
+                        #         pickle.dump([val.num_opponent for val in self.stations.values()], f)
+                        #     assert False
+                        # import pickle
+                        # with open('test_x_s_arr.pkl', 'rb') as f:
+                        #     test_x_s_arr = pickle.load(f)
+                        # with open('test_x_c_arr.pkl', 'rb') as f:
+                        #     test_x_c_arr = pickle.load(f)
+
                         single_dec_dict = get_routes_branch_and_price(
                             num_of_van=self.num_of_veh,
                             van_location=[0 for _ in range(self.num_of_veh)],

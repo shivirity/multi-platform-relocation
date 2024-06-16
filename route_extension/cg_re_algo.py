@@ -1625,8 +1625,8 @@ def get_dp_reduced_cost_early_label_dominance(cap_s: int, num_stations: int, ini
 def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
                                       init_load: int, x_s_arr: list, x_c_arr: list, ei_s_arr: np.ndarray,
                                       ei_c_arr: np.ndarray, esd_arr: np.ndarray, c_mat: np.ndarray,
-                                      cur_t: int, t_p: int, t_f: int, alpha: float,
-                                      dual_van: int, dual_station_vec: list, inventory_dict: dict = None,
+                                      cur_t: int, t_p: int, t_f: int, alpha: float, dual_van: int,
+                                      dual_station_vec: list, dual_arc_arr: np.ndarray, inventory_dict: dict = None,
                                       inventory_id_dict: dict = None):
     """calculate heuristic or exact reduced cost using bidirectional labeling algorithm"""
     com = ESDComputer(
@@ -1675,6 +1675,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                 assert False
                     else:  # visit other stations
                         arr_t = round(c_mat[init_loc, ne])
+                        dual_arc_val = dual_arc_arr[init_loc, ne]
                         if t + arr_t <= t_repo:
                             for inv in range(inv_num):
                                 ins = -inv_dict[inv]
@@ -1690,7 +1691,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                             mode='multi',
                                             delta=True,
                                             repo=True
-                                        ) - alpha * arr_t - dual_station_vec[ne - 1], {init_loc, ne})]
+                                        ) - alpha * arr_t - dual_arc_val - dual_station_vec[ne - 1], {init_loc, ne})]
                                     for_trace_arr[arr_t][ne][inv] = [
                                         (init_t_left, init_loc, inv_id_dict[init_load], 0)]  # time-space index
                                     for_calcu_arr[arr_t][ne - 1] = True
@@ -1751,6 +1752,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                 for_calcu_arr[t + stay_t][ne - 1] = True
                             else:  # visit other stations
                                 arr_t = round(c_mat[init_loc, ne])
+                                dual_arc_val = dual_arc_arr[init_loc, ne]
                                 if t + arr_t <= t_repo:
                                     for ne_inv in range(inv_num):
                                         ins = inv_dict[inv] - inv_dict[ne_inv]
@@ -1765,7 +1767,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                 mode='multi',
                                                 delta=True,
                                                 repo=True
-                                            ) - alpha * (arr_t - 1) - dual_station_vec[ne - 1]
+                                            ) - alpha * (arr_t - 1) - dual_arc_val - dual_station_vec[ne - 1]
                                             if for_reward_arr[t + arr_t][ne][ne_inv] is None:
                                                 for_reward_arr[t + arr_t][ne][ne_inv] = [(new_reward, {init_loc, ne})]
                                                 for_trace_arr[t + arr_t][ne][ne_inv] = [(t, init_loc, inv, 0)]
@@ -1847,6 +1849,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                             pass
                                         else:
                                             arr_t = round(c_mat[cur_s, next_s])
+                                            dual_arc_val = dual_arc_arr[cur_s, next_s]
                                             if t + arr_t <= t_repo:
                                                 if t + arr_t < t_repo - 1:
                                                     can_do_inv = inv_num
@@ -1858,7 +1861,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                         next_s - 1, cur_t, cur_t + t + arr_t, x_s_arr[next_s - 1],
                                                         x_c_arr[next_s - 1]] + ins <= cap_s:
                                                         dist_cost = arr_t - 1 if cur_s != 0 else arr_t
-                                                        new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                        new_reward = (cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
                                                             station_id=next_s,
                                                             t_arr=t + arr_t,
                                                             ins=ins,
@@ -1866,8 +1869,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                             x_c_arr=x_c_arr,
                                                             mode='multi',
                                                             delta=True,
-                                                            repo=True) - alpha * dist_cost - dual_station_vec[
-                                                                         next_s - 1]
+                                                            repo=True) - alpha * dist_cost - dual_arc_val -
+                                                                      dual_station_vec[next_s - 1])
                                                         if for_reward_arr[t + arr_t][next_s][next_inv] is None:
                                                             for_reward_arr[t + arr_t][next_s][next_inv] = [
                                                                 (new_reward, cur_set | {next_s})]
@@ -1968,6 +1971,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                         back_calcu_arr[t - stay_t][la - 1] = True
                             else:
                                 arr_t = round(c_mat[la, last])
+                                dual_arc_val = dual_arc_arr[la, last]
                                 if t - arr_t >= half_way_t + 3:
                                     for la_inv in range(inv_num):
                                         ins = inv_dict[la_inv] - inv_dict[inv]
@@ -1982,7 +1986,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                 x_c_arr=x_c_arr,
                                                 mode='multi',
                                                 delta=True,
-                                                repo=True) - alpha * (arr_t - 1) - dual_station_vec[la - 1]
+                                                repo=True) - alpha * (arr_t - 1) - dual_arc_val - dual_station_vec[la - 1]
                                             if back_reward_arr[t - arr_t][la][la_inv] is None:
                                                 back_reward_arr[t - arr_t][la][la_inv] = [(new_reward, {la, last}, ins)]
                                                 back_trace_arr[t - arr_t][la][la_inv] = [(t, last, inv, 0)]
@@ -2119,13 +2123,14 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                             pass
                                         else:
                                             arr_t = round(c_mat[last_s, cur_s])
+                                            dual_arc_val = dual_arc_arr[last_s, cur_s]
                                             if t - arr_t >= half_way_t + 3:
                                                 for last_inv in range(inv_num):
                                                     ins = inv_dict[last_inv] - inv_dict[inv]
                                                     if 0 <= ei_s_arr[
                                                         last_s - 1, cur_t, cur_t + t - arr_t, x_s_arr[last_s - 1],
                                                         x_c_arr[last_s - 1]] + ins <= cap_s:
-                                                        new_reward = cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
+                                                        new_reward = (cur_reward + ORDER_INCOME_UNIT * com.compute_ESD_in_horizon(
                                                             station_id=last_s,
                                                             t_arr=t - arr_t,
                                                             ins=ins,
@@ -2133,8 +2138,8 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                             x_c_arr=x_c_arr,
                                                             mode='multi',
                                                             delta=True,
-                                                            repo=True) - alpha * (arr_t - 1) - dual_station_vec[
-                                                                         last_s - 1]
+                                                            repo=True) - alpha * (arr_t - 1) - dual_arc_val -
+                                                                      dual_station_vec[last_s - 1])
                                                         if back_reward_arr[t - arr_t][last_s][last_inv] is None:
                                                             back_reward_arr[t - arr_t][last_s][last_inv] = [
                                                                 (new_reward, cur_set | {last_s}, ins)]
@@ -2241,7 +2246,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                         # if len(for_label[1].intersection(back_label[1])) == 0:
                                                         max_rewards.append(
                                                             for_label[0] + back_label[0] - alpha * round(
-                                                                c_mat[s, back_s]))
+                                                                c_mat[s, back_s]) - dual_arc_arr[s, back_s])
                                                         max_labels.append(((for_t, s, 0, for_label_id),
                                                                            (back_t, back_s, 0, back_label_id)))
                 else:  # s > 0
@@ -2264,7 +2269,7 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
                                                         if len(for_label[1].intersection(back_label[1])) == 0:  # delete back_label[0] > 0
                                                             max_rewards.append(
                                                                 for_label[0] + back_label[0] - alpha * (
-                                                                        round(c_mat[s, back_s]) - 1))
+                                                                        round(c_mat[s, back_s]) - 1) - dual_arc_arr[s, back_s])
                                                             max_labels.append(((for_t, s, inv, for_label_id),
                                                                                (back_t, back_s, inv, back_label_id)))
     else:  # with no backward labeling
@@ -2428,14 +2433,14 @@ def get_dp_reduced_cost_bidirectional(cap_s: int, num_stations: int, init_loc: i
     return clean_route, max_val
 
 
-@numba.jit('i8[:](i8,i8,i8,i8,i8,i4[:],i4[:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:],i8,i8,i8,f8,f8[:],i1[:],i1[:])',
+@numba.jit('i8[:](i8,i8,i8,i8,i8,i4[:],i4[:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:,:,:,:],f8[:,:],i8,i8,i8,f8,f8[:],f8[:,:],i1[:],i1[:])',
            nopython=True, nogil=True)
 def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_loc: int, init_t_left: int,
                                             init_load: int, x_s_arr: np.ndarray, x_c_arr: np.ndarray,
                                             ei_s_arr: np.ndarray, ei_c_arr: np.ndarray,
                                             esd_arr: np.ndarray, c_mat: np.ndarray,
                                             cur_t: int, t_p: int, t_f: int, alpha: float,
-                                            dual_station_vec: np.ndarray,
+                                            dual_station_vec: np.ndarray, dual_arc_arr: np.ndarray,
                                             inventory_dict: np.ndarray, inventory_id_dict: np.ndarray):
     """calculate heuristic or exact reduced cost using bidirectional labeling algorithm, accelerated by numba"""
     cur_t = round(cur_t - RE_START_T / 10)
@@ -2492,6 +2497,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                 for_trace_lid_arr[t + stay_t, ne, inv, 0] = 0
                     else:  # visit other stations
                         arr_t = round(c_mat[init_loc, ne])
+                        dual_arc_val = dual_arc_arr[init_loc, ne]
                         if t + arr_t <= t_repo:
                             for inv in range(inv_num):
                                 ins = -inv_arr[inv]
@@ -2528,7 +2534,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                     for_label_num_arr[arr_t, ne, inv] = 1
                                     for_reward_val_arr[arr_t, ne, inv, 0] = (
                                             ORDER_INCOME_UNIT * computed_ESD -
-                                            alpha * arr_t - dual_station_vec[ne - 1])
+                                            alpha * arr_t - dual_arc_val - dual_station_vec[ne - 1])
                                     for_reward_set_arr[arr_t, ne, inv, 0, init_loc] = True
                                     for_reward_set_arr[arr_t, ne, inv, 0, ne] = True
 
@@ -2662,6 +2668,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                 for_calcu_arr[t + stay_t, ne - 1] = True
                             else:
                                 arr_t = round(c_mat[init_loc, ne])
+                                dual_arc_val = dual_arc_arr[init_loc, ne]
                                 if t + arr_t <= t_repo:
                                     for ne_inv in range(inv_num):
                                         ins = inv_arr[inv] - inv_arr[ne_inv]
@@ -2697,7 +2704,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                             ]
                                             new_reward = (cur_reward +
                                                           ORDER_INCOME_UNIT * (before_val + after_val - original_val) -
-                                                          alpha * (arr_t - 1) - dual_station_vec[ne - 1])
+                                                          alpha * (arr_t - 1) - dual_arc_val - dual_station_vec[ne - 1])
                                             if for_label_num_arr[t + arr_t, ne, ne_inv] == 0:
                                                 for_label_num_arr[t + arr_t, ne, ne_inv] = 1
                                                 for_reward_val_arr[t + arr_t, ne, ne_inv, 0] = new_reward
@@ -2833,6 +2840,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                             pass
                                         else:
                                             arr_t = round(c_mat[cur_s, next_s])
+                                            dual_arc_val = dual_arc_arr[cur_s, next_s]
                                             if t + arr_t <= t_repo:
                                                 if t + arr_t < t_repo - 1:
                                                     can_do_inv = inv_num
@@ -2878,7 +2886,8 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                         computed_ESD = before_val + after_val - original_val
                                                         new_reward = (cur_reward +
                                                                       ORDER_INCOME_UNIT * computed_ESD -
-                                                                      alpha * dist_cost - dual_station_vec[next_s - 1])
+                                                                      alpha * dist_cost - dual_arc_val -
+                                                                      dual_station_vec[next_s - 1])
                                                         if for_label_num_arr[t + arr_t, next_s, ne_inv] == 0:
                                                             for_label_num_arr[t + arr_t, next_s, ne_inv] = 1
                                                             for_reward_val_arr[t + arr_t, next_s, ne_inv, 0] = new_reward
@@ -3083,6 +3092,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                         back_calcu_arr[t - stay_t, la - 1] = True
                             else:
                                 arr_t = round(c_mat[la, last])
+                                dual_arc_val = dual_arc_arr[la, last]
                                 if t - arr_t >= half_way_t + 3:
                                     for la_inv in range(inv_num):
                                         ins = inv_arr[la_inv] - inv_arr[inv]
@@ -3120,7 +3130,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                             computed_ESD = before_val + after_val - original_val
                                             new_reward = (cur_reward +
                                                           ORDER_INCOME_UNIT * computed_ESD -
-                                                          alpha * (arr_t - 1) -
+                                                          alpha * (arr_t - 1) - dual_arc_val -
                                                           dual_station_vec[la - 1])
                                             if back_label_num_arr[t - arr_t, la, la_inv] == 0:
                                                 back_label_num_arr[t - arr_t, la, la_inv] = 1
@@ -3897,6 +3907,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                             pass
                                         else:
                                             arr_t = round(c_mat[last_s, cur_s])
+                                            dual_arc_val = dual_arc_arr[last_s, cur_s]
                                             if t - arr_t >= half_way_t + 3:
                                                 for last_inv in range(inv_num):
                                                     ins = inv_arr[last_inv] - inv_arr[inv]
@@ -3934,7 +3945,7 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                         computed_ESD = before_val + after_val - original_val
                                                         new_reward = (cur_reward +
                                                                       ORDER_INCOME_UNIT * computed_ESD -
-                                                                      alpha * (arr_t - 1) -
+                                                                      alpha * (arr_t - 1) - dual_arc_val -
                                                                       dual_station_vec[last_s - 1])
                                                         if back_label_num_arr[t - arr_t, last_s, last_inv] == 0:
                                                             back_label_num_arr[t - arr_t, last_s, last_inv] = 1
@@ -4314,7 +4325,9 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                     back_val = back_reward_val_arr[back_t, back_s, 0, back_label_id]
                                                     back_set = back_reward_set_arr[back_t, back_s, 0, back_label_id, :].copy()
                                                     if not np.any(for_set & back_set):  # delete back_val > 0
-                                                        max_rewards.append(for_val + back_val - alpha * round(c_mat[s, back_s]))
+                                                        max_rewards.append(for_val + back_val -
+                                                                           alpha * round(c_mat[s, back_s]) -
+                                                                           dual_arc_arr[s, back_s])
                                                         max_labels.append(((for_t, s, 0, for_label_id),
                                                                            (back_t, back_s, 0, back_label_id)))
                 else:  # s > 0
@@ -4335,7 +4348,9 @@ def get_dp_reduced_cost_bidirectional_numba(cap_s: int, num_stations: int, init_
                                                         back_val = back_reward_val_arr[back_t, back_s, inv, back_label_id]
                                                         back_set = back_reward_set_arr[back_t, back_s, inv, back_label_id, :].copy()
                                                         if not np.any(for_set & back_set):  # delete back_val > 0
-                                                            max_rewards.append(for_val + back_val - alpha * (round(c_mat[s, back_s]) - 1))
+                                                            max_rewards.append(for_val + back_val -
+                                                                               alpha * (round(c_mat[s, back_s]) - 1) -
+                                                                               dual_arc_arr[s, back_s])
                                                             max_labels.append(((for_t, s, inv, for_label_id),
                                                                                (back_t, back_s, inv, back_label_id)))
     else:  # with no backward labeling

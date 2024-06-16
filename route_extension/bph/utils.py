@@ -104,6 +104,7 @@ class GreedySolution:
                 t_f=self.t_f,
                 alpha=self.alpha,
                 dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                dual_arc_arr=np.zeros(self.c_mat.shape, dtype=np.float64),
                 inventory_dict=default_inv_arr,
                 inventory_id_dict=default_inv_id_arr
             )

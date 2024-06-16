@@ -93,7 +93,7 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
             cur_node = stack.pop()
             # ------------- Step3.2: Node branching
             left_push_flag, right_push_flag = False, False
-            left_node, right_node = branch(node=cur_node)
+            left_node, right_node = branch(node=cur_node, c_mat_shape=c_mat.shape)
             # ------------- Step3.3: Solve child node
             left_prob = left_node.mp
             num_explored_nodes += 1  # explore left node
@@ -139,9 +139,9 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                         print(f'Updated global lower bound: {global_lower_bound}')
                         left_push_flag = True
                     else:
-                        if to_stop(pool_length=len(stack), lb=global_lower_bound,
-                                   ub=global_upper_bound, num_nodes=num_explored_nodes):
-                            break  # todo: may need to adjust
+                        if num_explored_nodes >= NODE_LIMIT or \
+                                global_upper_bound - global_lower_bound < global_upper_bound * 1e-8:
+                            break
             else:  # model is infeasible
                 pass
             right_prob = right_node.mp
@@ -166,8 +166,10 @@ def branch_and_price(c_s: int, c_v: int, cur_t: int, t_p: int, t_f: int, t_roll:
                     print(f'Updated global lower bound: {global_lower_bound}')
                 else:
                     if right_prob.relax_model.objVal > global_lower_bound:
-                        heuristic_prob = HeuristicProblem(num_of_van=right_prob.num_veh, route_pool=right_prob.route_pool,
-                                                          profit_pool=right_prob.profit_pool, veh_mat=right_prob.veh_mat,
+                        heuristic_prob = HeuristicProblem(num_of_van=right_prob.num_veh,
+                                                          route_pool=right_prob.route_pool,
+                                                          profit_pool=right_prob.profit_pool,
+                                                          veh_mat=right_prob.veh_mat,
                                                           node_mat=right_prob.node_mat, model=right_prob.model,
                                                           cg_column_pool=global_cg_column_pool,
                                                           cg_profit_pool=global_cg_profit_pool)
@@ -240,7 +242,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
     num_stations = c_mat.shape[0] - 1  # exclude the depot
     t_repo = t_p if cur_t + t_p <= RE_END_T / 10 else round(RE_END_T / 10 - cur_t)
     lp_obj = problem.relax_model.objVal
-    dual_vector, veh_num_labels, visit_con_keys = problem.get_dual_vector()
+    dual_vector, veh_num_labels, visit_con_keys, arc_keys, arc_bools = problem.get_dual_vector()
     dual_van_vec, dual_station_vec = dual_vector[:num_of_van], dual_vector[num_of_van:num_stations + num_of_van]
     # adjust with new dual vector (in case there's any new constraints)
     for idx in range(len(veh_num_labels)):
@@ -250,6 +252,15 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
             dual_van_vec = [val + dual_vector[num_stations + num_of_van + idx] for val in dual_van_vec]
     for idx in range(len(visit_con_keys)):
         dual_station_vec[visit_con_keys[idx]] -= dual_vector[num_stations + num_of_van + len(veh_num_labels) + idx]
+    dual_arc_vec = dual_vector[num_stations + num_of_van + len(veh_num_labels) + len(visit_con_keys):]
+    assert len(dual_arc_vec) == len(arc_keys), f'{len(dual_arc_vec)}, {len(arc_keys)}'
+    dual_arc_arr = np.zeros(c_mat.shape, dtype=np.float64)
+    for idx in range(len(arc_keys)):
+        if arc_bools[idx]:
+            dual_arc_arr[arc_keys[idx]] = - dual_arc_vec[idx]
+        else:
+            dual_arc_arr[arc_keys[idx]] = dual_arc_vec[idx]
+
     if all(x == van_location[0] for x in van_location) and \
             all(x == van_dis_left[0] for x in van_dis_left) and \
             all(x == van_load[0] for x in van_load):
@@ -278,20 +289,26 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
             init_load=van_load[0], x_s_arr=np.array(x_s_arr, dtype=np.int32), x_c_arr=np.array(x_c_arr, dtype=np.int32),
             ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
             t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+            dual_arc_arr=np.array(dual_arc_arr, dtype=np.float64),
             inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
         )
         route = list(new_route)
         max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[0],
                                                                 init_l=van_load[0], x_s_arr=x_s_arr, x_c_arr=x_c_arr,
-                                                                mode=mode, t_repo=t_repo, can_stay=True)
+                                                                mode=mode, t_repo=t_repo, can_stay=True, to_print=False,
+                                                                fix_route=True)
         clean_route = []
         for k in loc_list:
             if k not in clean_route and k > -0.5:
                 clean_route.append(k)
-        # assert len(clean_route) == len(route), f'{clean_route}, {route}'
-        station_reduced_cost = sum([dual_station_vec[j-1] for j in route if j > 0])
+        assert len(clean_route) == len(route), f'{clean_route}, {route}'
+        station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
+        arc_reduced_cost = 0
+        for i in range(len(route) - 1):
+            arc_reduced_cost -= dual_arc_arr[route[i], route[i + 1]]
         # print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
-        if max_reward - min(dual_van_vec) - station_reduced_cost > 1e-5:  # found route with negative reduced cost
+        if max_reward - min(
+                dual_van_vec) - station_reduced_cost + arc_reduced_cost > 1e-5:  # found route with negative reduced cost
             route_pool, profit_pool = [[] for _ in range(num_of_van)], [[] for _ in range(num_of_van)]
             for van in range(num_of_van):
                 route_pool[van].append(route)
@@ -315,11 +332,13 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                 x_c_arr=np.array(x_c_arr, dtype=np.int32),
                 ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
                 t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                dual_arc_arr=np.array(dual_arc_arr, dtype=np.float64),
                 inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
             )
             route = list(new_route)
             max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[0],
-                                                                    init_l=van_load[0], x_s_arr=x_s_arr, x_c_arr=x_c_arr,
+                                                                    init_l=van_load[0], x_s_arr=x_s_arr,
+                                                                    x_c_arr=x_c_arr,
                                                                     mode=mode, t_repo=t_repo, can_stay=True,
                                                                     to_print=False)
             clean_route = []
@@ -328,14 +347,18 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                     clean_route.append(k)
             assert len(clean_route) == len(route), f'{clean_route}, {route}'
             station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
+            arc_reduced_cost = 0
+            for i in range(len(route) - 1):
+                arc_reduced_cost -= dual_arc_arr[route[i], route[i + 1]]
             # print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
-            if max_reward - min(dual_van_vec) - station_reduced_cost < lp_obj * CG_STOP_EPSILON / num_of_van:
+            if max_reward - min(
+                    dual_van_vec) - station_reduced_cost + arc_reduced_cost < lp_obj * CG_STOP_EPSILON / num_of_van:
                 early_stop_flag = True
                 return None, None, early_stop_flag
             else:
                 # print(f'minimum reduced cost: {- max_reward + min(dual_van_vec) + station_reduced_cost}')
                 if max_reward - min(
-                        dual_van_vec) - station_reduced_cost > 1e-5:  # found route with negative reduced cost
+                        dual_van_vec) - station_reduced_cost + arc_reduced_cost > 1e-5:  # found route with negative reduced cost
                     route_pool, profit_pool = [[] for _ in range(num_of_van)], [[] for _ in range(num_of_van)]
                     for van in range(num_of_van):
                         route_pool[van].append(route)
@@ -372,6 +395,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                 x_c_arr=np.array(x_c_arr, dtype=np.int32),
                 ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
                 t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                dual_arc_arr=np.array(dual_arc_arr, dtype=np.float64),
                 inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
             )
             route = list(new_route)
@@ -391,15 +415,19 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
             max_reward, loc_list, inv_list = computer.compute_route(r=route, t_left=van_dis_left[van],
                                                                     init_l=van_load[van], x_s_arr=x_s_arr,
                                                                     x_c_arr=x_c_arr, mode=mode, t_repo=t_repo,
-                                                                    can_stay=True, to_print=False)
+                                                                    can_stay=True, to_print=False, fix_route=True)
             clean_route = []
             for k in loc_list:
                 if k not in clean_route and k > -0.5:
                     clean_route.append(k)
-            # assert len(clean_route) == len(route), f'{clean_route}, {route}'
+            assert len(clean_route) == len(route), f'{clean_route}, {route}'
             station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
+            arc_reduced_cost = 0
+            for i in range(len(route) - 1):
+                arc_reduced_cost -= dual_arc_arr[route[i], route[i + 1]]
             # print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
-            if max_reward - dual_van_vec[van] - station_reduced_cost > 1e-5:  # found route with negative reduced cost
+            if max_reward - dual_van_vec[
+                van] - station_reduced_cost + arc_reduced_cost > 1e-5:  # found route with negative reduced cost
                 route_pool[van].append(route)
                 profit_pool[van].append(max_reward)
                 get_new_route = True
@@ -425,6 +453,7 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                     x_c_arr=np.array(x_c_arr, dtype=np.int32),
                     ei_s_arr=com_ei_s_arr, ei_c_arr=ei_c_arr, esd_arr=com_esd_arr, c_mat=c_mat, cur_t=cur_t, t_p=t_p,
                     t_f=t_f, alpha=alpha, dual_station_vec=np.array(dual_station_vec, dtype=np.float64),
+                    dual_arc_arr=np.array(dual_arc_arr, dtype=np.float64),
                     inventory_dict=default_inv_arr, inventory_id_dict=default_inv_id_arr
                 )
                 route = list(new_route)
@@ -438,10 +467,14 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
                         clean_route.append(k)
                 assert len(clean_route) == len(route), f'{clean_route}, {route}'
                 station_reduced_cost = sum([dual_station_vec[j - 1] for j in route if j > 0])
+                arc_reduced_cost = 0
+                for i in range(len(route) - 1):
+                    arc_reduced_cost -= dual_arc_arr[route[i], route[i + 1]]
                 # print(f'minimum reduced cost: {- max_reward + dual_van_vec[van] + station_reduced_cost}')
-                if max_reward - dual_van_vec[van] - station_reduced_cost < lp_obj * CG_STOP_EPSILON / num_of_van:
+                if max_reward - dual_van_vec[
+                    van] - station_reduced_cost + arc_reduced_cost < lp_obj * CG_STOP_EPSILON / num_of_van:
                     early_stop_flag[van] = True
-                if max_reward - dual_van_vec[van] - station_reduced_cost > 1e-5:
+                if max_reward - dual_van_vec[van] - station_reduced_cost + arc_reduced_cost > 1e-5:
                     # found route with negative reduced cost
                     route_pool[van].append(route)
                     profit_pool[van].append(max_reward)
@@ -459,14 +492,14 @@ def column_generation(computer: ESDComputer, num_of_van: int, van_location: list
             return route_pool, profit_pool, False
 
 
-def branch(node: Node):
+def branch(node: Node, c_mat_shape: tuple):
     """branch the node"""
     print(f'Branching, branching node: {node.node_id}')
     problem = node.mp
     node_id = node.node_id
     # 1. branch on number of vehicles
     sum_veh_vars = sum(problem.get_relax_solution())
-    if not is_integer(sum_veh_vars):  # not is_integer(sum_veh_vars)
+    if not is_integer(sum_veh_vars):
         thd_lb = int(sum_veh_vars)
         thd_ub = thd_lb + 1
         left_node = branch_on_vehicle(node_id=node_id, problem=problem, threshold=thd_ub, branch_on=1)
@@ -487,7 +520,22 @@ def branch(node: Node):
         else:
             relax_sol = problem.get_relax_solution()
             if not is_integer_sol(sol=relax_sol):
-                assert False, f'need to branch on routes: {relax_sol}'
+                # generate non integer arcs
+                arc_num = np.zeros(c_mat_shape)
+                for i in range(len(relax_sol)):
+                    if relax_sol[i] > 0:
+                        cur_route = problem.route_pool[i]
+                        if len(cur_route) > 1:
+                            for j in range(len(cur_route) - 1):
+                                arc_num[cur_route[j], cur_route[j + 1]] += relax_sol[i]
+                abs_diff = np.abs(arc_num - 0.5)
+                min_diff = np.min(abs_diff)
+                min_indices = np.argwhere(abs_diff == min_diff)
+                random_index = min_indices[np.random.choice(min_indices.shape[0])]
+                closest_index = tuple(random_index)  # the arc to branch
+                left_node = branch_on_arc(node_id=node_id, problem=problem, arc=closest_index, branch_on=1)
+                right_node = branch_on_arc(node_id=node_id, problem=problem, arc=closest_index, branch_on=0)
+                return left_node, right_node
             else:
                 pass
 
@@ -538,3 +586,34 @@ def branch_on_vehicle(node_id: str, problem: MasterProblem, threshold: int, bran
         # create node
         new_node = Node(node_id=f'{node_id}@1', lp_obj=0, mp=new_problem)
         return new_node
+
+
+def branch_on_arc(node_id: str, problem: MasterProblem, arc: tuple, branch_on: int) -> Node:
+    """
+    branch on whether to visit station i
+
+    :param node_id:
+    :param problem:
+    :param arc: (i, j)
+    :param branch_on: 1 means must visit, 0 means must not visit
+    :return:
+    """
+    if branch_on == 1:
+        new_problem = problem.__deepcopy__()
+        # add constraints
+        new_problem.add_arc_visit_constr(arc=arc, visit=1)
+        # add belongings
+        new_problem.must_visit_arc.append(arc)
+        # create node
+        new_node = Node(node_id=f'{node_id}@0', lp_obj=0, mp=new_problem)
+        return new_node
+    elif branch_on == 0:
+        new_problem = problem.__deepcopy__()
+        # add constraints
+        new_problem.add_arc_visit_constr(arc=arc, visit=0)
+        # add belongings
+        new_problem.must_not_visit_arc.append(arc)
+        new_node = Node(node_id=f'{node_id}@1', lp_obj=0, mp=new_problem)
+        return new_node
+    else:
+        assert False, f'infeasible branch_on: {branch_on}'
